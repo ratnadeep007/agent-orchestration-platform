@@ -1,0 +1,25 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+SPEC.md
+
+*.log
+postgres-data/
+redis-data/
+
+# OpenClaw local runtime state, generated workspaces, and auth material.
+.openclaw/

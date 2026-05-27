@@ -1,0 +1,13 @@
+[project]
+name = "agent-platform-worker"
+version = "0.1.0"
+description = "Background worker for the agent orchestration platform"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic-settings>=2.7.0",
+  "psycopg[binary]>=3.2.3",
+  "redis>=5.2.1",
+]
+
+[tool.uv]
+package = false
