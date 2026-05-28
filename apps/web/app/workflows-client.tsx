@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { GitBranch, Loader2, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { GitBranch, Loader2, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,28 @@ type WorkflowTemplate = {
   description: string;
   graph: WorkflowGraph;
   created_at: string;
+};
+
+type WorkflowRunNode = {
+  id: string;
+  node_id: string;
+  node_type: string;
+  label: string;
+  status: string;
+  error: string | null;
+};
+
+type WorkflowRun = {
+  id: string;
+  workflow_id: string | null;
+  status: string;
+  trigger: Record<string, unknown>;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  nodes: WorkflowRunNode[];
 };
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -110,6 +132,7 @@ export function WorkflowsClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<WorkflowPayload>(emptyWorkflow);
   const [graphText, setGraphText] = useState(JSON.stringify(emptyGraph, null, 2));
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,13 +174,33 @@ export function WorkflowsClient() {
       status: workflow.status,
     });
     setGraphText(JSON.stringify(workflow.graph, null, 2));
+    void loadRuns(workflow.id);
   }
 
   function resetForm() {
     setSelectedId(null);
     setForm(emptyWorkflow);
     setGraphText(JSON.stringify(emptyGraph, null, 2));
+    setRuns([]);
     setError(null);
+  }
+
+  async function loadRuns(workflowId = selectedId) {
+    if (!workflowId) {
+      setRuns([]);
+      return;
+    }
+    try {
+      const response = await fetch(`${apiUrl}/workflows/${workflowId}/runs`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(`Run load failed: ${response.status}`);
+      }
+      setRuns(await response.json());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Run load failed");
+    }
   }
 
   async function instantiateTemplate(templateId: string) {
@@ -228,6 +271,29 @@ export function WorkflowsClient() {
       await loadAll();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Workflow delete failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function startRun() {
+    if (!selectedId) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${apiUrl}/workflows/${selectedId}/runs`, {
+        body: JSON.stringify({ trigger: { source: "web" } }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`Workflow run failed: ${response.status}`);
+      }
+      await loadRuns(selectedId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Workflow run failed");
     } finally {
       setLoading(false);
     }
@@ -315,6 +381,10 @@ export function WorkflowsClient() {
               <Trash2 className="mr-2 size-4" />
               Delete
             </Button>
+            <Button disabled={!selectedId || loading} onClick={() => void startRun()} type="button" variant="outline">
+              <Play className="mr-2 size-4" />
+              Run
+            </Button>
             <Button disabled={loading} type="submit">
               {loading ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -359,10 +429,83 @@ export function WorkflowsClient() {
             </Field>
           </div>
 
-          <WorkflowPreview graph={previewGraph} />
+          <div className="grid gap-4">
+            <WorkflowPreview graph={previewGraph} />
+            <WorkflowRuns runs={runs} onRefresh={() => void loadRuns()} />
+          </div>
         </div>
       </form>
     </div>
+  );
+}
+
+function WorkflowRuns({
+  onRefresh,
+  runs,
+}: {
+  onRefresh: () => void;
+  runs: WorkflowRun[];
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Recent Runs</h3>
+          <p className="text-xs text-slate-500">{runs.length} run records</p>
+        </div>
+        <Button onClick={onRefresh} size="sm" type="button" variant="outline">
+          <RefreshCcw className="size-4" />
+        </Button>
+      </div>
+      <div className="grid max-h-72 gap-3 overflow-auto">
+        {runs.length === 0 ? (
+          <p className="rounded-md border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+            No runs yet.
+          </p>
+        ) : null}
+        {runs.map((run) => (
+          <div className="rounded-md border border-slate-200 p-3" key={run.id}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="font-mono text-xs text-slate-500">
+                {run.id.slice(0, 8)}
+              </span>
+              <RunStatus status={run.status} />
+            </div>
+            <div className="grid gap-1">
+              {run.nodes.map((node) => (
+                <div
+                  className="flex items-center justify-between gap-3 text-xs"
+                  key={node.id}
+                >
+                  <span className="truncate text-slate-700">{node.label}</span>
+                  <RunStatus status={node.status} />
+                </div>
+              ))}
+            </div>
+            {run.error ? (
+              <p className="mt-2 line-clamp-2 text-xs text-red-700">{run.error}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RunStatus({ status }: { status: string }) {
+  const tone =
+    status === "succeeded"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : status === "failed"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : status === "running"
+          ? "border-blue-200 bg-blue-50 text-blue-700"
+          : "border-slate-200 bg-slate-50 text-slate-600";
+
+  return (
+    <span className={`rounded border px-2 py-0.5 text-xs font-medium ${tone}`}>
+      {status}
+    </span>
   );
 }
 
