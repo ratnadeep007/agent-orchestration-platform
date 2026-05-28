@@ -94,7 +94,12 @@ Open the Messages tab in the web UI to confirm the mirrored event is visible.
 
 ## Telegram Setup
 
-Telegram integration is handled through OpenClaw. The app will mirror Telegram/runtime conversations into PostgreSQL as implementation progresses.
+Telegram integration has two paths:
+
+- The app API accepts Telegram webhooks at `POST /telegram/webhook` and mirrors inbound messages into PostgreSQL.
+- The worker sends queued outbound Telegram messages through Telegram Bot API when `TELEGRAM_BOT_TOKEN` is configured.
+
+OpenClaw can still be configured as the runtime gateway for richer live agent sessions.
 
 1. Open Telegram and message `@BotFather`.
 2. Run `/newbot`.
@@ -105,18 +110,68 @@ Telegram integration is handled through OpenClaw. The app will mirror Telegram/r
 TELEGRAM_BOT_TOKEN=your-token-here
 ```
 
-5. Add the channel to OpenClaw after the gateway is running:
+5. Optional but recommended: restrict delivery to one chat after you know the chat ID:
+
+```bash
+TELEGRAM_ALLOWED_CHAT_ID=your-chat-id
+```
+
+6. Optional: protect webhook calls with a secret header:
+
+```bash
+TELEGRAM_WEBHOOK_SECRET=local-webhook-secret
+```
+
+7. Restart the stack:
+
+```bash
+docker compose up -d --build
+```
+
+8. For local webhook testing, use a public HTTPS tunnel such as ngrok:
+
+```bash
+ngrok http 8000
+curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
+  -d "url=https://<your-ngrok-host>/telegram/webhook" \
+  -d "secret_token=$TELEGRAM_WEBHOOK_SECRET"
+```
+
+9. For outbound testing through the app:
+
+```bash
+curl -X POST http://localhost:8000/telegram/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chat_id": "your-chat-id",
+    "body": "hello from the agent platform"
+  }'
+```
+
+10. To mirror a webhook payload locally without Telegram:
+
+```bash
+curl -X POST http://localhost:8000/telegram/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Telegram-Bot-Api-Secret-Token: local-webhook-secret" \
+  -d '{
+    "update_id": 1,
+    "message": {
+      "message_id": 10,
+      "chat": {"id": "your-chat-id"},
+      "from": {"id": 123},
+      "text": "hello from telegram"
+    }
+  }'
+```
+
+11. Add the channel to OpenClaw after the gateway is running if you want OpenClaw-managed Telegram sessions:
 
 ```bash
 docker compose run --rm openclaw-cli channels add --channel telegram --token "$TELEGRAM_BOT_TOKEN"
 ```
 
-6. For a local demo, prefer polling first. Webhooks require a publicly reachable HTTPS URL.
-7. After the bot sends/receives a message, record the allowed chat ID in `.env`:
-
-```bash
-TELEGRAM_ALLOWED_CHAT_ID=your-chat-id
-```
+For local demos, app webhooks require a publicly reachable HTTPS URL. If you only want to verify persistence without a tunnel, use the local webhook curl above and confirm the message appears in the Messages tab.
 
 ## Monorepo Layout
 
@@ -127,5 +182,5 @@ apps/
   worker/   background worker process
 ```
 
-Current implementation includes Docker boot wiring, OpenClaw gateway wiring, PostgreSQL migrations, agent CRUD/config API, a shadcn-based agent management UI, and a Redis-backed message delivery queue. Workflow building, OpenClaw config sync, live monitoring, and real Telegram end-to-end behavior are still pending.
-The workflow builder can save visual graph JSON, preview nodes/edges, instantiate the built-in Research Brief and Support Triage templates, and preserve OpenClaw orchestrator/delegate mapping metadata. Live monitoring and real Telegram end-to-end behavior are still pending.
+Current implementation includes Docker boot wiring, OpenClaw gateway wiring, PostgreSQL migrations, agent CRUD/config API, a shadcn-based agent management UI, workflow templates/runs, a Redis-backed message delivery queue, and Telegram webhook/outbound delivery scaffolding.
+The workflow builder can save visual graph JSON, preview nodes/edges, instantiate the built-in Research Brief and Support Triage templates, preserve OpenClaw orchestrator/delegate mapping metadata, start deterministic workflow runs, and display per-node run state.

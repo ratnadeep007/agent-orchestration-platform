@@ -5,6 +5,7 @@ from app.agents import router as agents_router
 from app.config import settings
 from app.health import readiness_payload
 from app.messages import router as messages_router
+from app.telegram import router as telegram_router
 from app.workflows import router as workflows_router
 
 app = FastAPI(title="Agent Orchestration API", version="0.1.0")
@@ -17,6 +18,7 @@ app.add_middleware(
 )
 app.include_router(agents_router)
 app.include_router(messages_router)
+app.include_router(telegram_router)
 app.include_router(workflows_router)
 
 

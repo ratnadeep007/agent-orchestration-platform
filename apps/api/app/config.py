@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     openclaw_container_agent_root: str = "/home/node/.openclaw/agents"
     telegram_bot_token: str = ""
     telegram_allowed_chat_id: str = ""
+    telegram_webhook_secret: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

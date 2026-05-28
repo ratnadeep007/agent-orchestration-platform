@@ -81,6 +81,7 @@ services:
       OPENCLAW_CONTAINER_AGENT_ROOT: /home/node/.openclaw/agents
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
     volumes:
       - ${OPENCLAW_CONFIG_DIR:-./.openclaw/config}:/openclaw/config
       - ${OPENCLAW_WORKSPACE_DIR:-./.openclaw/workspace}:/openclaw/workspace
@@ -102,6 +103,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       OPENCLAW_GATEWAY_URL: ${OPENCLAW_GATEWAY_URL:-http://openclaw-gateway:18789}
       OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-local-dev-token}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

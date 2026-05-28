@@ -90,6 +90,26 @@ class MessageRepository:
         self.connection.commit()
         return row
 
+    def create_outbound(
+        self,
+        *,
+        channel: str,
+        body: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO messages (channel, direction, body, metadata, delivery_state)
+                VALUES (%s, 'outbound', %s, %s, 'queued')
+                RETURNING *
+                """,
+                (channel, body, Jsonb(metadata)),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return row
+
     def mirror_event(self, payload: RuntimeEventCreate) -> dict[str, Any]:
         if payload.external_id:
             with self.connection.cursor() as cursor:
