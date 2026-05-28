@@ -17,8 +17,8 @@ const items = [
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-8 text-slate-950">
-      <section className="mx-auto flex max-w-6xl flex-col gap-8">
+    <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
+      <section className="mx-auto flex max-w-7xl flex-col gap-6">
         <div className="flex flex-col gap-2 border-b border-slate-200 pb-6">
           <p className="text-sm font-medium text-slate-500">
             Agent Orchestration
@@ -57,7 +57,7 @@ export default function Home() {
           })}
         </div>
 
-        <Tabs className="w-full" defaultValue="agents">
+        <Tabs className="w-full min-w-0" defaultValue="agents">
           <TabsList>
             <TabsTrigger value="agents">
               <Bot className="mr-2 size-4" />

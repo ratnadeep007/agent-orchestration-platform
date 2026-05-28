@@ -71,6 +71,15 @@ class WorkflowRunNode(BaseModel):
     updated_at: str
 
 
+class WorkflowRunLog(BaseModel):
+    id: UUID
+    run_id: UUID | None
+    level: str
+    message: str
+    metadata: dict[str, Any]
+    created_at: str
+
+
 class WorkflowRun(BaseModel):
     id: UUID
     workflow_id: UUID | None
@@ -83,6 +92,7 @@ class WorkflowRun(BaseModel):
     created_at: str
     updated_at: str
     nodes: list[WorkflowRunNode] = Field(default_factory=list)
+    logs: list[WorkflowRunLog] = Field(default_factory=list)
 
 
 class WorkflowRepository:
@@ -236,7 +246,18 @@ class WorkflowRepository:
                 """,
                 (row["id"],),
             )
-            return {**row, "nodes": list(cursor.fetchall())}
+            nodes = list(cursor.fetchall())
+            cursor.execute(
+                """
+                SELECT *
+                FROM run_logs
+                WHERE run_id = %s
+                ORDER BY created_at ASC
+                """,
+                (row["id"],),
+            )
+            logs = list(cursor.fetchall())
+            return {**row, "nodes": nodes, "logs": logs}
 
 
 class WorkflowRunBus:
@@ -290,6 +311,7 @@ def _serialize_run(row: dict[str, Any]) -> WorkflowRun:
         if payload[field] is not None:
             payload[field] = payload[field].isoformat()
     payload["nodes"] = [_serialize_run_node(node).model_dump() for node in payload["nodes"]]
+    payload["logs"] = [_serialize_run_log(log).model_dump() for log in payload["logs"]]
     return WorkflowRun.model_validate(payload)
 
 
@@ -299,6 +321,12 @@ def _serialize_run_node(row: dict[str, Any]) -> WorkflowRunNode:
         if payload[field] is not None:
             payload[field] = payload[field].isoformat()
     return WorkflowRunNode.model_validate(payload)
+
+
+def _serialize_run_log(row: dict[str, Any]) -> WorkflowRunLog:
+    payload = dict(row)
+    payload["created_at"] = payload["created_at"].isoformat()
+    return WorkflowRunLog.model_validate(payload)
 
 
 @router.get("", response_model=list[Workflow])

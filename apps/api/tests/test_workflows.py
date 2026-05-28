@@ -134,6 +134,16 @@ def _run_row(workflow, trigger):
             }
             for node in workflow["graph"]["nodes"]
         ],
+        "logs": [
+            {
+                "id": uuid4(),
+                "run_id": run_id,
+                "level": "info",
+                "message": "workflow run queued",
+                "metadata": {"source": "test"},
+                "created_at": now,
+            }
+        ],
     }
 
 
@@ -217,6 +227,7 @@ def test_workflow_run_routes_enqueue_and_return_node_state():
         assert run["status"] == "queued"
         assert run["trigger"] == {"source": "test"}
         assert run["nodes"][0]["node_id"] == "planner"
+        assert run["logs"][0]["message"] == "workflow run queued"
         assert bus.enqueued == [UUID(run["id"])]
 
         list_response = client.get(f"/workflows/{workflow_id}/runs")
