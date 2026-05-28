@@ -92,6 +92,30 @@ curl -X POST http://localhost:8000/messages/runtime-events \
 
 Open the Messages tab in the web UI to confirm the mirrored event is visible.
 
+## Workflow Execution Modes
+
+Workflow runs are executed by the worker. By default, nodes use deterministic mock execution so the stack works without paid model calls:
+
+```bash
+WORKFLOW_EXECUTION_MODE=mock
+```
+
+To execute agent nodes with OpenAI, set:
+
+```bash
+OPENAI_API_KEY=your-openai-key
+WORKFLOW_EXECUTION_MODE=openai
+WORKFLOW_DEFAULT_MODEL=gpt-4o-mini
+```
+
+Then restart the worker:
+
+```bash
+docker compose up -d --build worker
+```
+
+When `WORKFLOW_EXECUTION_MODE=openai`, agent nodes resolve an app agent by `agent_id`, `agentId`, node label, or node id. If that agent has been synced to OpenClaw, the run output records the `openclaw_agent_id` alongside the OpenAI response metadata. Condition nodes still execute locally.
+
 ## Telegram Setup
 
 Telegram integration has two paths:
