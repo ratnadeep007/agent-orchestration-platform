@@ -1,10 +1,7 @@
+import { Suspense } from "react";
 import { Activity, Bot, GitBranch, Server } from "lucide-react";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-import { AgentsClient } from "./agents-client";
-import { MessagesClient } from "./messages-client";
-import { WorkflowsClient } from "./workflows-client";
+import { HomeTabs } from "./home-tabs";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -57,31 +54,9 @@ export default function Home() {
           })}
         </div>
 
-        <Tabs className="w-full min-w-0" defaultValue="agents">
-          <TabsList>
-            <TabsTrigger value="agents">
-              <Bot className="mr-2 size-4" />
-              Agents
-            </TabsTrigger>
-            <TabsTrigger value="workflows">
-              <GitBranch className="mr-2 size-4" />
-              Workflows
-            </TabsTrigger>
-            <TabsTrigger value="messages">
-              <Activity className="mr-2 size-4" />
-              Messages
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="agents">
-            <AgentsClient />
-          </TabsContent>
-          <TabsContent value="workflows">
-            <WorkflowsClient />
-          </TabsContent>
-          <TabsContent value="messages">
-            <MessagesClient />
-          </TabsContent>
-        </Tabs>
+        <Suspense fallback={null}>
+          <HomeTabs />
+        </Suspense>
       </section>
     </main>
   );

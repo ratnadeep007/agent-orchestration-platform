@@ -3,6 +3,18 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type React from "react";
 import { Clock3, GitBranch, Loader2, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Position,
+  ReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,7 +100,17 @@ type WorkflowRun = {
   logs: WorkflowRunLog[];
 };
 
+type FlowNodeData = {
+  condition?: string;
+  generated?: boolean;
+  label: string;
+  nodeType: string;
+  role?: string;
+  status?: string;
+};
+
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const nodeTypes = { workflow: WorkflowFlowNode };
 
 const emptyGraph: WorkflowGraph = {
   nodes: [
@@ -430,7 +452,7 @@ export function WorkflowsClient() {
           </div>
         ) : null}
 
-        <div className="grid min-w-0 gap-4 2xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
           <div className="grid min-w-0 gap-4">
             <Field label="Name">
               <Input
@@ -449,7 +471,7 @@ export function WorkflowsClient() {
             </Field>
             <Field label="Graph JSON">
               <Textarea
-                className="min-h-[360px] font-mono text-xs"
+                className="min-h-[320px] font-mono text-xs"
                 onChange={(event) => setGraphText(event.target.value)}
                 spellCheck={false}
                 value={graphText}
@@ -458,7 +480,7 @@ export function WorkflowsClient() {
           </div>
 
           <div className="grid min-w-0 gap-4">
-            <WorkflowPreview graph={previewGraph} />
+            <WorkflowPreview graph={previewGraph} run={selectedRun} />
             <WorkflowRuns
               onRefresh={() => void loadRuns()}
               onSelect={setSelectedRunId}
@@ -643,8 +665,82 @@ function RunStatus({ status }: { status: string }) {
   );
 }
 
-function WorkflowPreview({ graph }: { graph: WorkflowGraph }) {
-  const layout = getGraphLayout(graph);
+function WorkflowPreview({
+  graph,
+  run,
+}: {
+  graph: WorkflowGraph;
+  run: WorkflowRun | null;
+}) {
+  const runNodeStatus = useMemo(() => {
+    return new Map(run?.nodes.map((node) => [node.node_id, node.status]) ?? []);
+  }, [run]);
+  const flowNodes = useMemo<Node<FlowNodeData>[]>(() => {
+    const declaredNodes = graph.nodes.map((node, index) => {
+      const position = node.position
+        ? { x: Math.round(node.position.x * 0.65), y: node.position.y }
+        : { x: index * 180, y: 80 };
+      return {
+        data: {
+          condition: node.condition,
+          label: node.label ?? node.id,
+          nodeType: node.type,
+          role: node.role,
+          status: runNodeStatus.get(node.id),
+        },
+        draggable: false,
+        id: node.id,
+        position,
+        type: "workflow",
+      };
+    });
+    const declaredIds = new Set(graph.nodes.map((node) => node.id));
+    const missingEndpointIds = Array.from(
+      new Set(
+        graph.edges
+          .flatMap((edge) => [edge.source, edge.target])
+          .filter((id) => !declaredIds.has(id)),
+      ),
+    );
+    const maxX = declaredNodes.reduce(
+      (value, node) => Math.max(value, node.position.x),
+      0,
+    );
+    const generatedNodes = missingEndpointIds.map((id, index) => ({
+      data: {
+        generated: true,
+        label: id,
+        nodeType: "terminal",
+        status: runNodeStatus.get(id),
+      },
+      draggable: false,
+      id,
+      position: { x: maxX + 180, y: 80 + index * 120 },
+      type: "workflow",
+    }));
+    return [...declaredNodes, ...generatedNodes];
+  }, [graph.edges, graph.nodes, runNodeStatus]);
+  const flowEdges = useMemo<Edge[]>(() => {
+    return graph.edges.map((edge) => ({
+      animated: Boolean(edge.condition),
+      data: { condition: edge.condition },
+      id: edge.id,
+      label: edge.label,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      source: edge.source,
+      style: {
+        stroke: edge.condition ? "#d97706" : "#64748b",
+        strokeDasharray: edge.condition ? "6 4" : undefined,
+        strokeWidth: 2,
+      },
+      target: edge.target,
+      type: "smoothstep",
+    }));
+  }, [graph.edges]);
+  const flowKey = useMemo(
+    () => flowNodes.map((node) => node.id).join("|"),
+    [flowNodes],
+  );
 
   return (
     <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -655,59 +751,69 @@ function WorkflowPreview({ graph }: { graph: WorkflowGraph }) {
           {String(graph.openclaw.strategy ?? "no strategy")}
         </p>
       </div>
-      <div className="h-[360px] max-w-full overflow-auto rounded-md border border-slate-200 bg-white">
-        <div
-          className="relative"
-          style={{ height: `${layout.height}px`, width: `${layout.width}px` }}
+      <div className="h-[360px] max-w-full overflow-hidden rounded-md border border-slate-200 bg-white">
+        <ReactFlow
+          colorMode="light"
+          edges={flowEdges}
+          fitView
+          fitViewOptions={{ padding: 0.12 }}
+          key={flowKey}
+          maxZoom={1.4}
+          minZoom={0.45}
+          nodes={flowNodes}
+          nodesConnectable={false}
+          nodesDraggable={false}
+          nodeTypes={nodeTypes}
+          panOnDrag
+          proOptions={{ hideAttribution: true }}
         >
-          <svg
-            className="absolute inset-0"
-            height={layout.height}
-            role="presentation"
-            width={layout.width}
-          >
-            {graph.edges.map((edge) => {
-              const source = layout.positions.get(edge.source);
-              const target = layout.positions.get(edge.target);
-              if (!source || !target) {
-                return null;
-              }
-              return (
-                <line
-                  key={edge.id}
-                  stroke="#94a3b8"
-                  strokeDasharray={edge.condition ? "5 5" : undefined}
-                  strokeWidth="2"
-                  x1={source.x + 208}
-                  x2={target.x}
-                  y1={source.y + 38}
-                  y2={target.y + 38}
-                />
-              );
-            })}
-          </svg>
-          {graph.nodes.map((node) => {
-            const position = layout.positions.get(node.id) ?? { x: 48, y: 48 };
-            return (
-            <div
-              className={`absolute w-52 rounded-md border bg-white p-3 shadow-sm ${
-                node.type === "condition" ? "border-amber-300" : "border-slate-200"
-              }`}
-              key={node.id}
-              style={{
-                left: `${position.x}px`,
-                top: `${position.y}px`,
-              }}
-            >
-              <p className="truncate text-sm font-medium">{node.label ?? node.id}</p>
-              <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                {node.role ?? node.condition ?? node.type}
-              </p>
-            </div>
-            );
-          })}
-        </div>
+          <Background color="#e2e8f0" gap={18} />
+          <Controls showInteractive={false} />
+          <MiniMap
+            nodeColor={(node) => statusColor(String(node.data?.status ?? ""))}
+            pannable
+            style={{ height: 72, width: 112 }}
+            zoomable
+          />
+        </ReactFlow>
       </div>
+    </div>
+  );
+}
+
+function WorkflowFlowNode({ data }: NodeProps<Node<FlowNodeData>>) {
+  const status = data.status ?? "idle";
+  const isCondition = data.nodeType === "condition";
+  const isGenerated = data.generated;
+  return (
+    <div
+      className={`w-52 rounded-md border bg-white px-3 py-2 shadow-sm ${
+        isGenerated
+          ? "border-dashed border-slate-300 bg-slate-50"
+          : isCondition
+            ? "border-amber-300"
+            : "border-slate-200"
+      }`}
+    >
+      <Handle className="!size-2 !bg-slate-400" position={Position.Left} type="target" />
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-slate-950">{data.label}</p>
+          <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+            {data.role ?? data.condition ?? data.nodeType}
+          </p>
+        </div>
+        <span
+          className="mt-0.5 size-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: statusColor(status) }}
+          title={status}
+        />
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+        <span className="truncate">{data.nodeType}</span>
+        <span className="truncate">{status}</span>
+      </div>
+      <Handle className="!size-2 !bg-slate-400" position={Position.Right} type="source" />
     </div>
   );
 }
@@ -735,42 +841,6 @@ function WorkflowGraphSchema(value: WorkflowGraph): WorkflowGraph {
   };
 }
 
-function getGraphLayout(graph: WorkflowGraph) {
-  const nodeWidth = 208;
-  const nodeHeight = 92;
-  const padding = 48;
-  const rawPositions = graph.nodes.map((node, index) => ({
-    id: node.id,
-    x: node.position?.x ?? index * 280,
-    y: node.position?.y ?? 80,
-  }));
-  const minX = rawPositions.reduce((value, position) => Math.min(value, position.x), 0);
-  const minY = rawPositions.reduce((value, position) => Math.min(value, position.y), 0);
-  const positions = new Map(
-    rawPositions.map((position) => [
-      position.id,
-      {
-        x: position.x - minX + padding,
-        y: position.y - minY + padding,
-      },
-    ]),
-  );
-  const maxX = Array.from(positions.values()).reduce(
-    (value, position) => Math.max(value, position.x),
-    padding,
-  );
-  const maxY = Array.from(positions.values()).reduce(
-    (value, position) => Math.max(value, position.y),
-    padding,
-  );
-
-  return {
-    height: Math.max(300, maxY + nodeHeight + padding),
-    positions,
-    width: Math.max(640, maxX + nodeWidth + padding),
-  };
-}
-
 function formatNullableDate(value: string | null) {
   return value ? formatDateTime(value) : "-";
 }
@@ -785,4 +855,19 @@ function formatDateTime(value: string) {
 function compactJson(value: Record<string, unknown>) {
   const text = JSON.stringify(value);
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function statusColor(status: string) {
+  switch (status) {
+    case "succeeded":
+      return "#059669";
+    case "failed":
+      return "#dc2626";
+    case "running":
+      return "#2563eb";
+    case "queued":
+      return "#64748b";
+    default:
+      return "#94a3b8";
+  }
 }
