@@ -4,31 +4,16 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from psycopg import Connection
-from pydantic import BaseModel, Field
 
+from app.bus.message import MessageBus, get_message_bus
 from app.config import settings
 from app.db import get_connection
-from app.messages import (
-    Message,
-    MessageBus,
-    MessageRepository,
-    RuntimeEventCreate,
-    _serialize,
-    get_message_bus,
-)
+from app.models.message import Message, RuntimeEventCreate
+from app.models.telegram import TelegramSendRequest, TelegramWebhookResponse
+from app.repository.message import MessageRepository
+from app.serializers.message import serialize_message
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
-
-
-class TelegramWebhookResponse(BaseModel):
-    accepted: bool
-    message: Message | None = None
-
-
-class TelegramSendRequest(BaseModel):
-    chat_id: str = Field(min_length=1)
-    body: str = Field(min_length=1)
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_telegram_message_repository(
@@ -82,7 +67,7 @@ def telegram_webhook(
             },
         )
     )
-    return TelegramWebhookResponse(accepted=True, message=_serialize(row))
+    return TelegramWebhookResponse(accepted=True, message=serialize_message(row))
 
 
 @router.post("/messages", response_model=Message, status_code=status.HTTP_202_ACCEPTED)
@@ -98,7 +83,7 @@ def queue_telegram_message(
         metadata={**payload.metadata, "chat_id": payload.chat_id},
     )
     bus.enqueue(row["id"])
-    return _serialize(row)
+    return serialize_message(row)
 
 
 def _validate_webhook_secret(received_secret: str | None) -> None:

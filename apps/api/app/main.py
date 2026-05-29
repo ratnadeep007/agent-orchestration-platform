@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.agents import router as agents_router
 from app.config import settings
-from app.health import readiness_payload
-from app.messages import router as messages_router
-from app.telegram import router as telegram_router
-from app.workflows import router as workflows_router
+from app.routes.health import readiness_payload
+from app.routes.agent import router as agents_router
+from app.routes.message import router as messages_router
+from app.routes.telegram import router as telegram_router
+from app.routes.workflow import router as workflows_router
 
 app = FastAPI(title="Agent Orchestration API", version="0.1.0")
 app.add_middleware(

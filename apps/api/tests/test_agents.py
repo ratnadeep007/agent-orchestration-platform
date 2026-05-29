@@ -3,8 +3,9 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from app.agents import AgentCreate, AgentUpdate, get_agent_repository
 from app.main import app
+from app.models.agent import AgentCreate, AgentUpdate
+from app.repository.agent import get_agent_repository
 
 
 class FakeAgentRepository:
@@ -122,7 +123,7 @@ def test_agent_sync_route_marks_agent_synced(monkeypatch):
             "files": ["/openclaw/workspace/app-agents/123/AGENTS.md"],
         }
 
-    monkeypatch.setattr("app.agents.sync_agent_to_openclaw", fake_sync)
+    monkeypatch.setattr("app.routes.agent.sync_agent_to_openclaw", fake_sync)
 
     try:
         client = TestClient(app)

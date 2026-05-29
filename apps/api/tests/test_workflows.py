@@ -4,13 +4,8 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.workflows import (
-    WorkflowCreate,
-    WorkflowRunCreate,
-    WorkflowUpdate,
-    get_workflow_repository,
-    get_workflow_run_bus,
-)
+from app.models.workflow import WorkflowCreate, WorkflowRunCreate, WorkflowUpdate
+from app.repository.workflow import get_workflow_repository, get_workflow_run_bus
 
 
 class FakeWorkflowRepository:

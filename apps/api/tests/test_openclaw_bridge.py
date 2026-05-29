@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from app import openclaw_bridge
+from app.integrations import openclaw
 from app.config import settings
 
 
@@ -33,7 +33,7 @@ def test_sync_agent_to_openclaw_writes_workspace_and_config(tmp_path, monkeypatc
         "updated_at": datetime.now(UTC),
     }
 
-    result = openclaw_bridge.sync_agent_to_openclaw(agent)
+    result = openclaw.sync_agent_to_openclaw(agent)
 
     workspace = workspace_root / "app-agents" / str(agent_id)
     assert (workspace / "AGENTS.md").exists()

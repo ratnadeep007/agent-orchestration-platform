@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app import health
+from app.routes import health
 from app.main import app
 
 

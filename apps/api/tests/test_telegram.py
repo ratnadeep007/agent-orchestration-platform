@@ -3,10 +3,11 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
+from app.bus.message import get_message_bus
 from app.config import settings
 from app.main import app
-from app.messages import RuntimeEventCreate, get_message_bus
-from app.telegram import get_telegram_message_repository
+from app.models.message import RuntimeEventCreate
+from app.routes.telegram import get_telegram_message_repository
 
 
 class FakeTelegramMessageRepository:

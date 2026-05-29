@@ -1,53 +1,12 @@
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import Depends
 from psycopg import Connection
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, Field
-from redis import Redis
 
-from app.config import settings
 from app.db import get_connection
-
-router = APIRouter(prefix="/messages", tags=["messages"])
-MESSAGE_QUEUE = "message_delivery"
-
-
-class MessageCreate(BaseModel):
-    run_id: UUID | None = None
-    agent_id: UUID | None = None
-    channel: str = Field(min_length=1)
-    direction: str = Field(pattern="^(inbound|outbound|agent)$")
-    body: str = Field(min_length=1)
-    external_id: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class RuntimeEventCreate(BaseModel):
-    source: str = "openclaw"
-    event_type: str = Field(min_length=1)
-    channel: str = Field(min_length=1)
-    direction: str = Field(pattern="^(inbound|outbound|agent)$")
-    body: str = Field(min_length=1)
-    run_id: UUID | None = None
-    agent_id: UUID | None = None
-    external_id: str | None = None
-    delivery_state: str = "mirrored"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class Message(BaseModel):
-    id: UUID
-    run_id: UUID | None
-    agent_id: UUID | None
-    channel: str
-    direction: str
-    body: str
-    delivery_state: str
-    external_id: str | None
-    metadata: dict[str, Any]
-    created_at: str
+from app.models.message import MessageCreate, RuntimeEventCreate
 
 
 class MessageRepository:
@@ -170,62 +129,7 @@ class MessageRepository:
         return row
 
 
-class MessageBus:
-    def __init__(self, redis: Redis):
-        self.redis = redis
-
-    def enqueue(self, message_id: UUID) -> None:
-        self.redis.lpush(MESSAGE_QUEUE, str(message_id))
-
-
 def get_message_repository(
     connection: Connection = Depends(get_connection),
 ) -> MessageRepository:
     return MessageRepository(connection)
-
-
-def get_message_bus() -> MessageBus:
-    return MessageBus(Redis.from_url(settings.redis_url))
-
-
-def _serialize(row: dict[str, Any]) -> Message:
-    payload = dict(row)
-    payload["created_at"] = payload["created_at"].isoformat()
-    return Message.model_validate(payload)
-
-
-@router.get("", response_model=list[Message])
-def list_messages(
-    repository: MessageRepository = Depends(get_message_repository),
-) -> list[Message]:
-    return [_serialize(row) for row in repository.list()]
-
-
-@router.post("", response_model=Message, status_code=status.HTTP_202_ACCEPTED)
-def create_message(
-    payload: MessageCreate,
-    repository: MessageRepository = Depends(get_message_repository),
-    bus: MessageBus = Depends(get_message_bus),
-) -> Message:
-    row = repository.create(payload)
-    bus.enqueue(row["id"])
-    return _serialize(row)
-
-
-@router.post("/runtime-events", response_model=Message, status_code=status.HTTP_202_ACCEPTED)
-def mirror_runtime_event(
-    payload: RuntimeEventCreate,
-    repository: MessageRepository = Depends(get_message_repository),
-) -> Message:
-    return _serialize(repository.mirror_event(payload))
-
-
-@router.get("/{message_id}", response_model=Message)
-def get_message(
-    message_id: UUID,
-    repository: MessageRepository = Depends(get_message_repository),
-) -> Message:
-    row = repository.get(message_id)
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-    return _serialize(row)

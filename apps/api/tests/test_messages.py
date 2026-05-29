@@ -3,13 +3,10 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
+from app.bus.message import get_message_bus
 from app.main import app
-from app.messages import (
-    MessageCreate,
-    RuntimeEventCreate,
-    get_message_bus,
-    get_message_repository,
-)
+from app.models.message import MessageCreate, RuntimeEventCreate
+from app.repository.message import get_message_repository
 
 
 class FakeMessageRepository:
