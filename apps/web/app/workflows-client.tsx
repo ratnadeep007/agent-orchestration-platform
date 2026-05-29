@@ -106,6 +106,7 @@ type FlowNodeData = {
   label: string;
   nodeType: string;
   role?: string;
+  selected?: boolean;
   status?: string;
 };
 
@@ -165,6 +166,7 @@ export function WorkflowsClient() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<string | null>(null);
   const [form, setForm] = useState<WorkflowPayload>(emptyWorkflow);
   const [graphText, setGraphText] = useState(JSON.stringify(emptyGraph, null, 2));
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
@@ -210,6 +212,7 @@ export function WorkflowsClient() {
       status: workflow.status,
     });
     setGraphText(JSON.stringify(workflow.graph, null, 2));
+    setSelectedGraphNodeId(workflow.graph.nodes[0]?.id ?? null);
     void loadRuns(workflow.id);
   }
 
@@ -217,8 +220,107 @@ export function WorkflowsClient() {
     setSelectedId(null);
     setForm(emptyWorkflow);
     setGraphText(JSON.stringify(emptyGraph, null, 2));
+    setSelectedGraphNodeId(emptyGraph.nodes[0]?.id ?? null);
     setRuns([]);
     setError(null);
+  }
+
+  function updateGraphFromBuilder(updater: (graph: WorkflowGraph) => WorkflowGraph) {
+    try {
+      const current = WorkflowGraphSchema(JSON.parse(graphText));
+      const next = WorkflowGraphSchema(updater(current));
+      setForm((currentForm) => ({ ...currentForm, graph: next }));
+      setGraphText(JSON.stringify(next, null, 2));
+      setError(null);
+      return next;
+    } catch {
+      setError("Fix Graph JSON before using builder controls.");
+      return null;
+    }
+  }
+
+  function updateGraphNode(nodeId: string, patch: Partial<WorkflowNode>) {
+    updateGraphFromBuilder((graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((node) =>
+        node.id === nodeId ? { ...node, ...patch } : node,
+      ),
+    }));
+  }
+
+  function addGraphNode(type: "agent" | "condition") {
+    const next = updateGraphFromBuilder((graph) => {
+      const nodeNumber = graph.nodes.length + 1;
+      const id = uniqueGraphId(graph, type === "agent" ? "agent" : "condition");
+      const lastPosition = graph.nodes.at(-1)?.position ?? { x: 80, y: 120 };
+      const node: WorkflowNode = {
+        id,
+        label: type === "agent" ? `Agent ${nodeNumber}` : `Condition ${nodeNumber}`,
+        position: { x: lastPosition.x + 280, y: lastPosition.y },
+        type,
+      };
+      if (type === "agent") {
+        node.role = "Describe this agent's responsibility";
+      } else {
+        node.condition = "status == true";
+      }
+
+      return {
+        ...graph,
+        nodes: [...graph.nodes, node],
+      };
+    });
+    setSelectedGraphNodeId(next?.nodes.at(-1)?.id ?? null);
+  }
+
+  function removeGraphNode(nodeId: string) {
+    const next = updateGraphFromBuilder((graph) => ({
+      ...graph,
+      edges: graph.edges.filter(
+        (edge) => edge.source !== nodeId && edge.target !== nodeId,
+      ),
+      nodes: graph.nodes.filter((node) => node.id !== nodeId),
+    }));
+    setSelectedGraphNodeId(next?.nodes[0]?.id ?? null);
+  }
+
+  function addGraphEdge() {
+    updateGraphFromBuilder((graph) => {
+      if (graph.nodes.length < 2) {
+        return graph;
+      }
+      const source = selectedGraphNodeId ?? graph.nodes[0].id;
+      const sourceIndex = graph.nodes.findIndex((node) => node.id === source);
+      const target = graph.nodes[sourceIndex + 1]?.id ?? graph.nodes[0].id;
+      return {
+        ...graph,
+        edges: [
+          ...graph.edges,
+          {
+            id: uniqueGraphId(graph, "edge"),
+            label: "next",
+            source,
+            target,
+          },
+        ],
+      };
+    });
+  }
+
+  function updateGraphEdge(edgeId: string, patch: Partial<WorkflowEdge>) {
+    updateGraphFromBuilder((graph) => ({
+      ...graph,
+      edges: graph.edges.map((edge) =>
+        edge.id === edgeId ? { ...edge, ...patch } : edge,
+      ),
+    }));
+  }
+
+  function removeGraphEdge(edgeId: string) {
+    updateGraphFromBuilder((graph) => ({
+      ...graph,
+      edges: graph.edges.filter((edge) => edge.id !== edgeId),
+    }));
   }
 
   async function loadRuns(workflowId = selectedId) {
@@ -452,8 +554,8 @@ export function WorkflowsClient() {
           </div>
         ) : null}
 
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="grid min-w-0 gap-4">
+        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="grid min-w-0 content-start gap-4">
             <Field label="Name">
               <Input
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
@@ -469,6 +571,17 @@ export function WorkflowsClient() {
                 value={form.description}
               />
             </Field>
+            <GraphBuilder
+              graph={previewGraph}
+              onAddEdge={addGraphEdge}
+              onAddNode={addGraphNode}
+              onRemoveEdge={removeGraphEdge}
+              onRemoveNode={removeGraphNode}
+              onSelectNode={setSelectedGraphNodeId}
+              onUpdateEdge={updateGraphEdge}
+              onUpdateNode={updateGraphNode}
+              selectedNodeId={selectedGraphNodeId}
+            />
             <Field label="Graph JSON">
               <Textarea
                 className="min-h-[320px] font-mono text-xs"
@@ -479,8 +592,16 @@ export function WorkflowsClient() {
             </Field>
           </div>
 
-          <div className="grid min-w-0 gap-4">
-            <WorkflowPreview graph={previewGraph} run={selectedRun} />
+          <div className="grid min-w-0 content-start gap-4">
+            <WorkflowPreview
+              graph={previewGraph}
+              onNodeMove={(nodeId, position) =>
+                updateGraphNode(nodeId, { position })
+              }
+              onNodeSelect={setSelectedGraphNodeId}
+              run={selectedRun}
+              selectedNodeId={selectedGraphNodeId}
+            />
             <WorkflowRuns
               onRefresh={() => void loadRuns()}
               onSelect={setSelectedRunId}
@@ -665,30 +786,270 @@ function RunStatus({ status }: { status: string }) {
   );
 }
 
-function WorkflowPreview({
+function GraphBuilder({
   graph,
-  run,
+  onAddEdge,
+  onAddNode,
+  onRemoveEdge,
+  onRemoveNode,
+  onSelectNode,
+  onUpdateEdge,
+  onUpdateNode,
+  selectedNodeId,
 }: {
   graph: WorkflowGraph;
+  onAddEdge: () => void;
+  onAddNode: (type: "agent" | "condition") => void;
+  onRemoveEdge: (edgeId: string) => void;
+  onRemoveNode: (nodeId: string) => void;
+  onSelectNode: (nodeId: string | null) => void;
+  onUpdateEdge: (edgeId: string, patch: Partial<WorkflowEdge>) => void;
+  onUpdateNode: (nodeId: string, patch: Partial<WorkflowNode>) => void;
+  selectedNodeId: string | null;
+}) {
+  const selectedNode =
+    graph.nodes.find((node) => node.id === selectedNodeId) ?? graph.nodes[0] ?? null;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">Graph Builder</p>
+          <p className="text-xs text-slate-500">
+            {graph.nodes.length} nodes · {graph.edges.length} edges
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => onAddNode("agent")} size="sm" type="button" variant="outline">
+            <Plus className="mr-1 size-3" />
+            Agent
+          </Button>
+          <Button onClick={() => onAddNode("condition")} size="sm" type="button" variant="outline">
+            <Plus className="mr-1 size-3" />
+            Condition
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        <Field label="Selected node">
+          <select
+            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+            onChange={(event) => onSelectNode(event.target.value || null)}
+            value={selectedNode?.id ?? ""}
+          >
+            {graph.nodes.length === 0 ? <option value="">No nodes</option> : null}
+            {graph.nodes.map((node) => (
+              <option key={node.id} value={node.id}>
+                {node.label ?? node.id}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        {selectedNode ? (
+          <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3">
+            <Field label="Label">
+              <Input
+                onChange={(event) =>
+                  onUpdateNode(selectedNode.id, { label: event.target.value })
+                }
+                value={selectedNode.label ?? ""}
+              />
+            </Field>
+            <Field label={selectedNode.type === "condition" ? "Condition" : "Role"}>
+              <Input
+                onChange={(event) =>
+                  onUpdateNode(
+                    selectedNode.id,
+                    selectedNode.type === "condition"
+                      ? { condition: event.target.value }
+                      : { role: event.target.value },
+                  )
+                }
+                value={
+                  selectedNode.type === "condition"
+                    ? selectedNode.condition ?? ""
+                    : selectedNode.role ?? ""
+                }
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="X">
+                <Input
+                  onChange={(event) =>
+                    onUpdateNode(selectedNode.id, {
+                      position: {
+                        x: Number(event.target.value),
+                        y: selectedNode.position?.y ?? 120,
+                      },
+                    })
+                  }
+                  type="number"
+                  value={selectedNode.position?.x ?? 0}
+                />
+              </Field>
+              <Field label="Y">
+                <Input
+                  onChange={(event) =>
+                    onUpdateNode(selectedNode.id, {
+                      position: {
+                        x: selectedNode.position?.x ?? 80,
+                        y: Number(event.target.value),
+                      },
+                    })
+                  }
+                  type="number"
+                  value={selectedNode.position?.y ?? 0}
+                />
+              </Field>
+            </div>
+            <Button
+              disabled={graph.nodes.length <= 1}
+              onClick={() => onRemoveNode(selectedNode.id)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Trash2 className="mr-2 size-4" />
+              Remove node
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="rounded-md border border-slate-200 bg-white p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-xs font-medium text-slate-500">Edges</p>
+            <Button
+              disabled={graph.nodes.length < 2}
+              onClick={onAddEdge}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Plus className="mr-1 size-3" />
+              Edge
+            </Button>
+          </div>
+          <div className="grid gap-2">
+            {graph.edges.length === 0 ? (
+              <p className="rounded-md border border-dashed border-slate-200 p-2 text-xs text-slate-500">
+                No edges yet.
+              </p>
+            ) : null}
+            {graph.edges.map((edge) => (
+              <div className="grid gap-2 rounded-md border border-slate-200 p-2" key={edge.id}>
+                <Input
+                  aria-label="Edge label"
+                  onChange={(event) =>
+                    onUpdateEdge(edge.id, { label: event.target.value })
+                  }
+                  value={edge.label ?? ""}
+                />
+                <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                  <select
+                    aria-label="Edge source"
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                    onChange={(event) =>
+                      onUpdateEdge(edge.id, { source: event.target.value })
+                    }
+                    value={edge.source}
+                  >
+                    {graph.nodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.label ?? node.id}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Edge target"
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                    onChange={(event) =>
+                      onUpdateEdge(edge.id, { target: event.target.value })
+                    }
+                    value={edge.target}
+                  >
+                    {graph.nodes.map((node) => (
+                      <option key={node.id} value={node.id}>
+                        {node.label ?? node.id}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    onClick={() => onRemoveEdge(edge.id)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowPreview({
+  graph,
+  onNodeMove,
+  onNodeSelect,
+  run,
+  selectedNodeId,
+}: {
+  graph: WorkflowGraph;
+  onNodeMove: (nodeId: string, position: { x: number; y: number }) => void;
+  onNodeSelect: (nodeId: string) => void;
   run: WorkflowRun | null;
+  selectedNodeId: string | null;
 }) {
   const runNodeStatus = useMemo(() => {
     return new Map(run?.nodes.map((node) => [node.node_id, node.status]) ?? []);
   }, [run]);
+  const terminalStatus = useMemo(() => {
+    return (terminalId: string) => {
+      const explicitStatus = runNodeStatus.get(terminalId);
+      if (explicitStatus || !run) {
+        return explicitStatus;
+      }
+
+      const upstreamStatuses = graph.edges
+        .filter((edge) => edge.target === terminalId)
+        .map((edge) => runNodeStatus.get(edge.source))
+        .filter(Boolean);
+
+      if (upstreamStatuses.includes("failed")) {
+        return "failed";
+      }
+      if (upstreamStatuses.includes("running")) {
+        return "running";
+      }
+      if (
+        run.status === "succeeded" &&
+        upstreamStatuses.length > 0 &&
+        upstreamStatuses.every((status) => status === "succeeded")
+      ) {
+        return "succeeded";
+      }
+      return undefined;
+    };
+  }, [graph.edges, run, runNodeStatus]);
   const flowNodes = useMemo<Node<FlowNodeData>[]>(() => {
     const declaredNodes = graph.nodes.map((node, index) => {
-      const position = node.position
-        ? { x: Math.round(node.position.x * 0.65), y: node.position.y }
-        : { x: index * 180, y: 80 };
+      const position = node.position ?? { x: index * 280, y: 80 };
       return {
         data: {
           condition: node.condition,
           label: node.label ?? node.id,
           nodeType: node.type,
           role: node.role,
+          selected: node.id === selectedNodeId,
           status: runNodeStatus.get(node.id),
         },
-        draggable: false,
+        draggable: true,
         id: node.id,
         position,
         type: "workflow",
@@ -711,15 +1072,16 @@ function WorkflowPreview({
         generated: true,
         label: id,
         nodeType: "terminal",
-        status: runNodeStatus.get(id),
+        selected: id === selectedNodeId,
+        status: terminalStatus(id),
       },
       draggable: false,
       id,
-      position: { x: maxX + 180, y: 80 + index * 120 },
+      position: { x: maxX + 280, y: 80 + index * 120 },
       type: "workflow",
     }));
     return [...declaredNodes, ...generatedNodes];
-  }, [graph.edges, graph.nodes, runNodeStatus]);
+  }, [graph.edges, graph.nodes, runNodeStatus, selectedNodeId, terminalStatus]);
   const flowEdges = useMemo<Edge[]>(() => {
     return graph.edges.map((edge) => ({
       animated: Boolean(edge.condition),
@@ -731,7 +1093,7 @@ function WorkflowPreview({
       style: {
         stroke: edge.condition ? "#d97706" : "#64748b",
         strokeDasharray: edge.condition ? "6 4" : undefined,
-        strokeWidth: 2,
+        strokeWidth: 3,
       },
       target: edge.target,
       type: "smoothstep",
@@ -756,14 +1118,23 @@ function WorkflowPreview({
           colorMode="light"
           edges={flowEdges}
           fitView
-          fitViewOptions={{ padding: 0.12 }}
+          fitViewOptions={{ padding: 0.18 }}
           key={flowKey}
           maxZoom={1.4}
-          minZoom={0.45}
+          minZoom={0.25}
           nodes={flowNodes}
           nodesConnectable={false}
-          nodesDraggable={false}
+          nodesDraggable
           nodeTypes={nodeTypes}
+          onNodeClick={(_, node) => onNodeSelect(node.id)}
+          onNodeDragStop={(_, node) => {
+            if (graph.nodes.some((graphNode) => graphNode.id === node.id)) {
+              onNodeMove(node.id, {
+                x: Math.round(node.position.x),
+                y: Math.round(node.position.y),
+              });
+            }
+          }}
           panOnDrag
           proOptions={{ hideAttribution: true }}
         >
@@ -787,8 +1158,10 @@ function WorkflowFlowNode({ data }: NodeProps<Node<FlowNodeData>>) {
   const isGenerated = data.generated;
   return (
     <div
-      className={`w-52 rounded-md border bg-white px-3 py-2 shadow-sm ${
-        isGenerated
+      className={`w-44 rounded-md border bg-white px-3 py-2 shadow-sm ${
+        data.selected
+          ? "border-blue-400 ring-2 ring-blue-100"
+          : isGenerated
           ? "border-dashed border-slate-300 bg-slate-50"
           : isCondition
             ? "border-amber-300"
@@ -855,6 +1228,20 @@ function formatDateTime(value: string) {
 function compactJson(value: Record<string, unknown>) {
   const text = JSON.stringify(value);
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function uniqueGraphId(graph: WorkflowGraph, prefix: string) {
+  const existing = new Set([
+    ...graph.nodes.map((node) => node.id),
+    ...graph.edges.map((edge) => edge.id),
+  ]);
+  let index = existing.size + 1;
+  let id = `${prefix}-${index}`;
+  while (existing.has(id)) {
+    index += 1;
+    id = `${prefix}-${index}`;
+  }
+  return id;
 }
 
 function statusColor(status: string) {

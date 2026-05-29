@@ -60,28 +60,42 @@ def execute_workflow_run(run_id: UUID) -> None:
             graph = _normalize_graph(run["graph_snapshot"])
             outputs: dict[str, dict[str, Any]] = {}
             _log(connection, run_id, "info", "workflow run started", {})
+            connection.commit()
 
             for node in _execution_order(graph):
                 node_id = str(node["id"])
                 label = str(node.get("label") or node_id)
                 upstream = _upstream_outputs(node_id, graph, outputs)
-                agent = _find_agent_for_node(connection, node)
-                output = _execute_node(node, upstream, agent)
+                _mark_node_running(connection, run_id, node_id, upstream)
+                _log(
+                    connection,
+                    run_id,
+                    "info",
+                    "workflow node started",
+                    {"node_id": node_id, "label": label},
+                )
+                connection.commit()
+
+                try:
+                    agent = _find_agent_for_node(connection, node)
+                    output = _execute_node(node, upstream, agent)
+                except Exception as caught:
+                    error = str(caught)
+                    _mark_node_failed(connection, run_id, node_id, error)
+                    _mark_run_failed(connection, run_id, error)
+                    _log(
+                        connection,
+                        run_id,
+                        "error",
+                        "workflow node failed",
+                        {"node_id": node_id, "label": label, "error": error},
+                    )
+                    connection.commit()
+                    raise
+
                 outputs[node_id] = output
 
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        UPDATE workflow_run_nodes
-                        SET
-                            status = 'running',
-                            input = %s,
-                            started_at = COALESCE(started_at, now()),
-                            updated_at = now()
-                        WHERE run_id = %s AND node_id = %s
-                        """,
-                        (Jsonb({"upstream": upstream}), run_id, node_id),
-                    )
                     cursor.execute(
                         """
                         UPDATE workflow_run_nodes
@@ -119,8 +133,13 @@ def execute_workflow_run(run_id: UUID) -> None:
                     run_id,
                     "info",
                     "workflow node completed",
-                    {"node_id": node_id, "label": label},
+                    {
+                        "node_id": node_id,
+                        "label": label,
+                        "runtime": output.get("runtime", "mock"),
+                    },
                 )
+                connection.commit()
 
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -135,7 +154,7 @@ def execute_workflow_run(run_id: UUID) -> None:
             connection.commit()
         except Exception as caught:
             connection.rollback()
-            _fail_run(run_id, str(caught))
+            _fail_run_if_needed(run_id, str(caught))
             raise
 
 
@@ -245,17 +264,77 @@ def _claim_run(connection, run_id: UUID) -> dict[str, Any] | None:
         return cursor.fetchone()
 
 
-def _fail_run(run_id: UUID, error: str) -> None:
+def _mark_node_running(
+    connection,
+    run_id: UUID,
+    node_id: str,
+    upstream: dict[str, dict[str, Any]],
+) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE workflow_run_nodes
+            SET
+                status = 'running',
+                input = %s,
+                started_at = COALESCE(started_at, now()),
+                updated_at = now()
+            WHERE run_id = %s AND node_id = %s
+            """,
+            (Jsonb({"upstream": upstream}), run_id, node_id),
+        )
+
+
+def _mark_node_failed(connection, run_id: UUID, node_id: str, error: str) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE workflow_run_nodes
+            SET
+                status = 'failed',
+                error = %s,
+                completed_at = now(),
+                updated_at = now()
+            WHERE run_id = %s AND node_id = %s
+            """,
+            (error, run_id, node_id),
+        )
+
+
+def _mark_run_failed(connection, run_id: UUID, error: str) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE workflow_runs
+            SET status = 'failed', error = %s, completed_at = now(), updated_at = now()
+            WHERE id = %s
+            """,
+            (error, run_id),
+        )
+        cursor.execute(
+            """
+            INSERT INTO run_logs (run_id, level, message, metadata)
+            VALUES (%s, 'error', 'workflow run failed', %s)
+            """,
+            (run_id, Jsonb({"error": error})),
+        )
+
+
+def _fail_run_if_needed(run_id: UUID, error: str) -> None:
     with connect(settings.database_url) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE workflow_runs
                 SET status = 'failed', error = %s, completed_at = now(), updated_at = now()
-                WHERE id = %s
+                WHERE id = %s AND status != 'failed'
+                RETURNING id
                 """,
                 (error, run_id),
             )
+            row = cursor.fetchone()
+            if row is None:
+                return
             cursor.execute(
                 """
                 INSERT INTO run_logs (run_id, level, message, metadata)
