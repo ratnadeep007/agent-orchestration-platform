@@ -118,10 +118,11 @@ When `WORKFLOW_EXECUTION_MODE=openai`, agent nodes resolve an app agent by `agen
 
 ## Telegram Setup
 
-Telegram integration has two paths:
+Telegram integration is owned by the app:
 
-- The app API accepts Telegram webhooks at `POST /telegram/webhook` and mirrors inbound messages into PostgreSQL.
+- The app API accepts Telegram webhooks at `POST /telegram/webhook`, mirrors inbound messages into PostgreSQL, and can start a configured workflow.
 - The worker sends queued outbound Telegram messages through Telegram Bot API when `TELEGRAM_BOT_TOKEN` is configured.
+- OpenClaw is kept as an internal orchestration/runtime dependency; it should not consume the same Telegram bot token directly.
 
 OpenClaw can still be configured as the runtime gateway for richer live agent sessions.
 
@@ -146,13 +147,27 @@ TELEGRAM_ALLOWED_CHAT_ID=your-chat-id
 TELEGRAM_WEBHOOK_SECRET=local-webhook-secret
 ```
 
-7. Restart the stack:
+7. Optional: route inbound Telegram messages into a workflow by setting the default workflow id:
+
+```bash
+TELEGRAM_WORKFLOW_ID=workflow-uuid-from-the-ui-or-api
+```
+
+When this is set, inbound Telegram messages create a workflow run with a `telegram` trigger. After the run completes, the worker queues a Telegram reply to the same chat.
+
+You can also map commands directly on each workflow in the UI:
+
+- `/research` -> `Research Brief`
+- `/support` -> `Support Triage`
+- Any plain message with no leading command falls back to `TELEGRAM_WORKFLOW_ID`
+
+8. Restart the stack:
 
 ```bash
 docker compose up -d --build
 ```
 
-8. For local webhook testing, use a public HTTPS tunnel such as ngrok:
+9. For local webhook testing, use a public HTTPS tunnel such as ngrok:
 
 ```bash
 ngrok http 8000
@@ -161,7 +176,7 @@ curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   -d "secret_token=$TELEGRAM_WEBHOOK_SECRET"
 ```
 
-9. For outbound testing through the app:
+10. For outbound testing through the app:
 
 ```bash
 curl -X POST http://localhost:8000/telegram/messages \
@@ -172,7 +187,7 @@ curl -X POST http://localhost:8000/telegram/messages \
   }'
 ```
 
-10. To mirror a webhook payload locally without Telegram:
+11. To mirror a webhook payload locally without Telegram:
 
 ```bash
 curl -X POST http://localhost:8000/telegram/webhook \
@@ -189,7 +204,7 @@ curl -X POST http://localhost:8000/telegram/webhook \
   }'
 ```
 
-11. Add the channel to OpenClaw after the gateway is running if you want OpenClaw-managed Telegram sessions:
+12. Add a separate channel to OpenClaw after the gateway is running only if you want OpenClaw-managed Telegram sessions. Prefer a separate bot token so OpenClaw does not consume updates for the app-owned bot:
 
 ```bash
 docker compose run --rm openclaw-cli channels add --channel telegram --token "$TELEGRAM_BOT_TOKEN"

@@ -29,7 +29,10 @@ def create_workflow(
     payload: WorkflowCreate,
     repository: WorkflowRepository = Depends(get_workflow_repository),
 ) -> Workflow:
-    return serialize_workflow(repository.create(payload))
+    try:
+        return serialize_workflow(repository.create(payload))
+    except ValueError as caught:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(caught)) from caught
 
 
 @router.get("/templates", response_model=list[WorkflowTemplate])
@@ -103,7 +106,10 @@ def update_workflow(
     payload: WorkflowUpdate,
     repository: WorkflowRepository = Depends(get_workflow_repository),
 ) -> Workflow:
-    row = repository.update(workflow_id, payload)
+    try:
+        row = repository.update(workflow_id, payload)
+    except ValueError as caught:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(caught)) from caught
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
     return serialize_workflow(row)

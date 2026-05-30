@@ -26,6 +26,7 @@ export type WorkflowPayload = {
   description: string;
   graph: WorkflowGraph;
   status: string;
+  telegram_command?: string | null;
 };
 
 export type Workflow = WorkflowPayload & {

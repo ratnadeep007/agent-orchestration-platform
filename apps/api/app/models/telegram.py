@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,7 @@ from app.models.message import Message
 class TelegramWebhookResponse(BaseModel):
     accepted: bool
     message: Message | None = None
+    workflow_run_id: UUID | None = None
 
 
 class TelegramSendRequest(BaseModel):

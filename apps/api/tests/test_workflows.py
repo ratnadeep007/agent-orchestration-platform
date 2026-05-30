@@ -161,6 +161,7 @@ def test_workflow_crud_routes():
         payload = {
             "name": "Manual Workflow",
             "description": "Saved from builder",
+            "telegram_command": "support",
             "status": "draft",
             "graph": {
                 "nodes": [{"id": "planner", "type": "agent"}],
@@ -174,13 +175,15 @@ def test_workflow_crud_routes():
         created = create_response.json()
         assert created["name"] == "Manual Workflow"
         assert created["graph"]["nodes"][0]["id"] == "planner"
+        assert created["telegram_command"] == "support"
 
         update_response = client.put(
             f"/workflows/{created['id']}",
-            json={**payload, "name": "Updated Workflow"},
+            json={**payload, "name": "Updated Workflow", "telegram_command": "research"},
         )
         assert update_response.status_code == 200
         assert update_response.json()["name"] == "Updated Workflow"
+        assert update_response.json()["telegram_command"] == "research"
 
         assert client.get("/workflows").json()[0]["name"] == "Updated Workflow"
         assert client.delete(f"/workflows/{created['id']}").status_code == 204

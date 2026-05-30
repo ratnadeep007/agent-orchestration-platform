@@ -17,6 +17,7 @@ class WorkflowBase(BaseModel):
     description: str = ""
     graph: WorkflowGraph = Field(default_factory=WorkflowGraph)
     status: str = "draft"
+    telegram_command: str | None = None
 
 
 class WorkflowCreate(WorkflowBase):

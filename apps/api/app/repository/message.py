@@ -26,6 +26,21 @@ class MessageRepository:
             cursor.execute("SELECT * FROM messages WHERE id = %s", (message_id,))
             return cursor.fetchone()
 
+    def attach_run(self, message_id: UUID, run_id: UUID) -> dict[str, Any] | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE messages
+                SET run_id = %s
+                WHERE id = %s
+                RETURNING *
+                """,
+                (run_id, message_id),
+            )
+            row = cursor.fetchone()
+        self.connection.commit()
+        return row
+
     def create(self, payload: MessageCreate) -> dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(

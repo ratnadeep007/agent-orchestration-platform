@@ -70,6 +70,7 @@ const emptyWorkflow: WorkflowPayload = {
   graph: emptyGraph,
   name: "",
   status: "draft",
+  telegram_command: null,
 };
 
 export function WorkflowsClient() {
@@ -119,6 +120,7 @@ export function WorkflowsClient() {
       description: workflow.description,
       graph: workflow.graph,
       name: workflow.name,
+      telegram_command: workflow.telegram_command ?? null,
       status: workflow.status,
     });
     setGraphText(JSON.stringify(workflow.graph, null, 2));
@@ -416,6 +418,9 @@ export function WorkflowsClient() {
                 <span className="block text-xs text-slate-500">
                   {workflow.graph.nodes.length} nodes · {workflow.graph.edges.length} edges
                 </span>
+                <span className="block text-xs text-slate-500">
+                  {workflow.telegram_command ? `/${workflow.telegram_command}` : "no telegram command"}
+                </span>
               </span>
             </button>
           ))}
@@ -479,6 +484,18 @@ export function WorkflowsClient() {
                   setForm({ ...form, description: event.target.value })
                 }
                 value={form.description}
+              />
+            </Field>
+            <Field label="Telegram Command">
+              <Input
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    telegram_command: event.target.value.replace(/^\//, "").trim() || null,
+                  })
+                }
+                placeholder="research"
+                value={form.telegram_command ?? ""}
               />
             </Field>
             <GraphBuilder

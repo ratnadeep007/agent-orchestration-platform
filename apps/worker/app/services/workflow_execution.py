@@ -5,8 +5,10 @@ from uuid import UUID
 from psycopg import connect
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from redis import Redis
 
 from app.config import settings
+from app.queues import MESSAGE_QUEUE
 from app.runtime.graph import execution_order, normalize_graph, upstream_outputs
 from app.runtime.nodes import execute_node
 
@@ -74,7 +76,15 @@ def execute_workflow_run(run_id: UUID) -> None:
 
             mark_run_succeeded(connection, run_id)
             log(connection, run_id, "info", "workflow run succeeded", {})
+            reply_message_id = create_telegram_reply_if_requested(
+                connection,
+                run,
+                outputs,
+                error=None,
+            )
             connection.commit()
+            if reply_message_id:
+                enqueue_message(reply_message_id)
         except Exception as caught:
             connection.rollback()
             fail_run_if_needed(run_id, str(caught))
@@ -208,14 +218,15 @@ def mark_run_failed(connection, run_id: UUID, error: str) -> None:
 
 
 def fail_run_if_needed(run_id: UUID, error: str) -> None:
-    with connect(settings.database_url) as connection:
+    reply_message_id = None
+    with connect(settings.database_url, row_factory=dict_row) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE workflow_runs
                 SET status = 'failed', error = %s, completed_at = now(), updated_at = now()
                 WHERE id = %s AND status != 'failed'
-                RETURNING id
+                RETURNING *
                 """,
                 (error, run_id),
             )
@@ -229,7 +240,15 @@ def fail_run_if_needed(run_id: UUID, error: str) -> None:
                 """,
                 (run_id, Jsonb({"error": error})),
             )
+            reply_message_id = create_telegram_reply_if_requested(
+                connection,
+                row,
+                {},
+                error=error,
+            )
         connection.commit()
+    if reply_message_id:
+        enqueue_message(reply_message_id)
 
 
 def log(connection, run_id: UUID, level: str, message: str, metadata: dict[str, Any]) -> None:
@@ -268,3 +287,54 @@ def find_agent_for_node(connection, node: dict[str, Any]) -> dict[str, Any] | No
             (list(candidates),),
         )
         return cursor.fetchone()
+
+
+def create_telegram_reply_if_requested(
+    connection,
+    run: dict[str, Any],
+    outputs: dict[str, dict[str, Any]],
+    error: str | None,
+) -> UUID | None:
+    trigger = run.get("trigger") or {}
+    if trigger.get("source") != "telegram" or not trigger.get("chat_id"):
+        return None
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO messages (
+                run_id, channel, direction, body, delivery_state, metadata
+            )
+            VALUES (%s, 'telegram', 'outbound', %s, 'queued', %s)
+            RETURNING id
+            """,
+            (
+                run["id"],
+                telegram_reply_body(outputs, error),
+                Jsonb(
+                    {
+                        "chat_id": str(trigger["chat_id"]),
+                        "source": "workflow_run",
+                        "trigger_message_id": trigger.get("message_id"),
+                    }
+                ),
+            ),
+        )
+        row = cursor.fetchone()
+    return row["id"]
+
+
+def telegram_reply_body(outputs: dict[str, dict[str, Any]], error: str | None) -> str:
+    if error:
+        return f"Workflow failed: {error}"
+
+    for output in reversed(list(outputs.values())):
+        summary = output.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+
+    return "Workflow completed."
+
+
+def enqueue_message(message_id: UUID) -> None:
+    Redis.from_url(settings.redis_url).lpush(MESSAGE_QUEUE, str(message_id))

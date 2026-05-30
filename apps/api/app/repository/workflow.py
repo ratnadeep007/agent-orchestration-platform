@@ -29,6 +29,18 @@ class WorkflowRepository:
             cursor.execute("SELECT * FROM workflows WHERE id = %s", (workflow_id,))
             return cursor.fetchone()
 
+    def get_by_telegram_command(self, command: str) -> dict[str, Any] | None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT *
+                FROM workflows
+                WHERE telegram_command = %s
+                """,
+                (command,),
+            )
+            return cursor.fetchone()
+
     def create(self, payload: WorkflowCreate) -> dict[str, Any]:
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -201,6 +213,7 @@ def get_workflow_run_bus() -> WorkflowRunBus:
 def _workflow_payload(payload: WorkflowBase) -> dict[str, Any]:
     data = payload.model_dump()
     data["graph"] = Jsonb(data["graph"])
+    data["telegram_command"] = _normalize_telegram_command(data.get("telegram_command"))
     return data
 
 
@@ -210,3 +223,19 @@ def normalize_workflow_graph(graph: dict[str, Any]) -> dict[str, Any]:
         "edges": graph["edges"] if isinstance(graph.get("edges"), list) else [],
         "openclaw": graph["openclaw"] if isinstance(graph.get("openclaw"), dict) else {},
     }
+
+
+def _normalize_telegram_command(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    command = str(value).strip().lower()
+    if not command:
+        return None
+    if command.startswith("/"):
+        command = command[1:]
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    if not command or not all(ch.isalnum() or ch == "_" for ch in command):
+        raise ValueError("telegram_command must contain only letters, numbers, and underscores")
+    return command
