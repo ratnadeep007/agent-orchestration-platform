@@ -1,6 +1,6 @@
 # Agent Orchestration Platform
 
-Monorepo scaffold for an AI agent orchestration challenge.
+Monorepo scaffold for an AI agent orchestration platform.
 
 ## Stack
 
@@ -11,6 +11,7 @@ Monorepo scaffold for an AI agent orchestration challenge.
 - Queue/cache: Redis
 - Agent runtime: OpenClaw Gateway
 - External channel: Telegram owned by the app, with OpenClaw kept as the internal agent runtime
+- Built-in tools: current time, message history lookup/search, Firecrawl web search
 
 ## Architecture
 
@@ -74,9 +75,9 @@ curl http://localhost:8000/ready
 
 ## Runtime Decision
 
-OpenClaw is the internal runtime dependency for this assignment. It owns live agent execution, sessions, memory files, and multi-agent routing. The custom app owns the visual UI, app database, workflow/template configuration, monitoring, Telegram delivery, and the bridge that syncs app-defined agents into OpenClaw-compatible config.
+OpenClaw is the internal runtime dependency for the stack. It owns live agent execution, sessions, memory files, and multi-agent routing. The custom app owns the visual UI, app database, workflow/template configuration, monitoring, Telegram delivery, and the bridge that syncs app-defined agents into OpenClaw-compatible config.
 
-OpenClaw is a better fit than LangGraph for this challenge because Telegram and always-on gateway behavior are central requirements. LangGraph is stronger for graph-native workflow modeling, so the app keeps a visual workflow model and maps it into OpenClaw orchestrator/delegate agent configuration.
+OpenClaw is a better fit than LangGraph here because Telegram and always-on gateway behavior are central requirements. LangGraph is stronger for graph-native workflow modeling, so the app keeps a visual workflow model and maps it into OpenClaw orchestrator/delegate agent configuration.
 
 ## OpenClaw Agent Sync
 
@@ -87,6 +88,17 @@ curl -X POST http://localhost:8000/agents/<agent-id>/sync-openclaw
 ```
 
 The sync writes a generated OpenClaw workspace under `.openclaw/workspace/app-agents/<agent-id>/` and upserts the isolated agent entry in `.openclaw/config/openclaw.json`.
+
+## Built-in Tools
+
+Agents can be assigned developer-provided tools from the UI. The current catalog includes:
+
+- `current_time`
+- `recent_messages`
+- `search_messages`
+- `web_search` powered by Firecrawl
+
+The worker executes these tools through the OpenAI function-calling loop when `WORKFLOW_EXECUTION_MODE=openai` is enabled. Tool calls and outputs are stored in run output and shown in the workflow run detail panel.
 
 ## Runtime Event Mirroring
 
@@ -131,6 +143,8 @@ docker compose up -d --build worker
 ```
 
 When `WORKFLOW_EXECUTION_MODE=openai`, agent nodes resolve an app agent by `agent_id`, `agentId`, node label, or node id. If that agent has been synced to OpenClaw, the run output records the `openclaw_agent_id` alongside the OpenAI response metadata. Condition nodes still execute locally.
+
+The worker also records token usage and estimated cost rows per node run. The workflow UI shows prompt tokens, completion tokens, total cost, and any tool calls executed by the node.
 
 ## Telegram Setup
 
@@ -226,6 +240,12 @@ curl -X POST http://localhost:8000/telegram/webhook \
 docker compose run --rm openclaw-cli channels add --channel telegram --token "$TELEGRAM_BOT_TOKEN"
 ```
 
+If you use the built-in `web_search` tool, set:
+
+```bash
+FIRECRAWL_API_KEY=your-firecrawl-key
+```
+
 For local demos, app webhooks require a publicly reachable HTTPS URL. If you only want to verify persistence without a tunnel, use the local webhook curl above and confirm the message appears in the Messages tab.
 
 ## Monorepo Layout
@@ -237,5 +257,5 @@ apps/
   worker/   background worker process
 ```
 
-Current implementation includes Docker boot wiring, OpenClaw gateway wiring, PostgreSQL migrations, agent CRUD/config API, a shadcn-based agent management UI, workflow templates/runs, a Redis-backed message delivery queue, token usage tracking, and Telegram webhook/outbound delivery scaffolding.
-The workflow builder can save visual graph JSON, preview nodes/edges, instantiate the built-in Research Brief and Support Triage templates, preserve OpenClaw orchestrator/delegate mapping metadata, start deterministic workflow runs, and display per-node run state and cost rows.
+Current implementation includes Docker boot wiring, OpenClaw gateway wiring, PostgreSQL migrations, agent CRUD/config API, a shadcn-based agent management UI, workflow templates/runs, a Redis-backed message delivery queue, token usage tracking, developer-defined built-in tools, and Telegram webhook/outbound delivery scaffolding.
+The workflow builder can save visual graph JSON, preview nodes/edges, instantiate the built-in Research Brief and Support Triage templates, preserve OpenClaw orchestrator/delegate mapping metadata, start deterministic or OpenAI-backed workflow runs, and display per-node run state, tool calls, and cost rows. Workflow run state is polled automatically in the UI while the detail panel stays open.
