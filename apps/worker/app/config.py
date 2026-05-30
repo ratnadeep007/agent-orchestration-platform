@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     workflow_default_model: str = "gpt-4o-mini"
     telegram_bot_token: str = ""
     telegram_allowed_chat_id: str = ""
+    firecrawl_api_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

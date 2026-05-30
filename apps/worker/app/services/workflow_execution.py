@@ -33,6 +33,10 @@ def execute_workflow_run(run_id: UUID) -> None:
             outputs: dict[str, dict[str, Any]] = {}
             log(connection, run_id, "info", "workflow run started", {})
             connection.commit()
+            runtime_trigger = {
+                **(run.get("trigger") or {}),
+                "workflow_run_id": str(run_id),
+            }
 
             for node in execution_order(graph):
                 node_id = str(node["id"])
@@ -50,7 +54,13 @@ def execute_workflow_run(run_id: UUID) -> None:
 
                 try:
                     agent = find_agent_for_node(connection, node)
-                    output = execute_node(node, upstream, agent, trigger=run.get("trigger") or {})
+                    output = execute_node(
+                        node,
+                        upstream,
+                        agent,
+                        trigger=runtime_trigger,
+                        connection=connection,
+                    )
                 except Exception as caught:
                     error = str(caught)
                     mark_node_failed(connection, run_id, node_id, error)

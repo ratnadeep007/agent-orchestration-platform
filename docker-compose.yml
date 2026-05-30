@@ -107,6 +107,7 @@ services:
       WORKFLOW_DEFAULT_MODEL: ${WORKFLOW_DEFAULT_MODEL:-gpt-4o-mini}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

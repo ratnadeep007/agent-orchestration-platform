@@ -4,9 +4,12 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Bot, Loader2, RefreshCcw, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+
+import { BUILTIN_TOOL_NAMES, BUILTIN_TOOLS } from "@/features/agents/tool-catalog";
 
 type Agent = AgentPayload & {
   id: string;
@@ -49,6 +52,7 @@ export function AgentsClient() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<AgentPayload>(emptyAgent);
+  const [customToolsText, setCustomToolsText] = useState("");
   const [schedulesText, setSchedulesText] = useState("[]");
   const [memoryText, setMemoryText] = useState("{}");
   const [loading, setLoading] = useState(false);
@@ -64,6 +68,7 @@ export function AgentsClient() {
   }, []);
 
   function selectAgent(agent: Agent) {
+    const customTools = agent.tools.filter((tool) => !BUILTIN_TOOL_NAMES.includes(tool));
     setSelectedId(agent.id);
     setForm({
       name: agent.name,
@@ -78,6 +83,7 @@ export function AgentsClient() {
       interaction_rules: agent.interaction_rules,
       guardrails: agent.guardrails,
     });
+    setCustomToolsText(customTools.join(", "));
     setSchedulesText(JSON.stringify(agent.schedules, null, 2));
     setMemoryText(JSON.stringify(agent.memory, null, 2));
   }
@@ -85,6 +91,7 @@ export function AgentsClient() {
   function resetForm() {
     setSelectedId(null);
     setForm(emptyAgent);
+    setCustomToolsText("");
     setSchedulesText("[]");
     setMemoryText("{}");
     setError(null);
@@ -115,6 +122,7 @@ export function AgentsClient() {
     try {
       const payload = {
         ...form,
+        tools: [...selectedBuiltInTools, ...splitList(customToolsText)],
         schedules: JSON.parse(schedulesText),
         memory: JSON.parse(memoryText),
       };
@@ -137,6 +145,25 @@ export function AgentsClient() {
     } finally {
       setLoading(false);
     }
+  }
+
+  const selectedBuiltInTools = useMemo(
+    () => form.tools.filter((tool) => BUILTIN_TOOL_NAMES.includes(tool)),
+    [form.tools],
+  );
+
+  function setToolSelected(toolName: string, checked: boolean) {
+    setForm((current) => {
+      const customTools = current.tools.filter((tool) => !BUILTIN_TOOL_NAMES.includes(tool));
+      const builtInTools = current.tools.filter((tool) => BUILTIN_TOOL_NAMES.includes(tool));
+      const nextBuiltInTools = checked
+        ? Array.from(new Set([...builtInTools, toolName]))
+        : builtInTools.filter((tool) => tool !== toolName);
+      return {
+        ...current,
+        tools: [...nextBuiltInTools, ...customTools],
+      };
+    });
   }
 
   async function deleteAgent() {
@@ -266,13 +293,31 @@ export function AgentsClient() {
               value={form.channels.join(", ")}
             />
           </Field>
-          <Field label="Tools">
-            <Input
-              onChange={(event) =>
-                setForm({ ...form, tools: splitList(event.target.value) })
-              }
-              value={form.tools.join(", ")}
-            />
+          <Field className="md:col-span-2" label="Tools">
+            <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+              {BUILTIN_TOOLS.map((tool) => (
+                <label className="flex items-start gap-3 text-sm" key={tool.name}>
+                  <Checkbox
+                    checked={selectedBuiltInTools.includes(tool.name)}
+                    onCheckedChange={(checked) =>
+                      setToolSelected(tool.name, checked === true)
+                    }
+                  />
+                  <span className="grid gap-0.5">
+                    <span className="font-medium">{tool.title}</span>
+                    <span className="text-xs text-slate-500">{tool.description}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="grid gap-2">
+              <Label className="text-xs text-slate-500">Custom tools</Label>
+              <Input
+                onChange={(event) => setCustomToolsText(event.target.value)}
+                placeholder="e.g. lookup_invoice, create_ticket"
+                value={customToolsText}
+              />
+            </div>
           </Field>
           <Field label="Skills">
             <Input

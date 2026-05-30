@@ -4,6 +4,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from app.config import settings
+from app.runtime.tools import execute_tool, openai_function_tools
 
 
 def execute_node(
@@ -11,6 +12,7 @@ def execute_node(
     upstream: dict[str, dict[str, Any]],
     agent: dict[str, Any] | None = None,
     trigger: dict[str, Any] | None = None,
+    connection: Any | None = None,
 ) -> dict[str, Any]:
     node_id = str(node["id"])
     node_type = str(node.get("type", "agent"))
@@ -27,7 +29,7 @@ def execute_node(
         }
 
     if settings.workflow_execution_mode == "openai":
-        return execute_node_with_openai(node, upstream, agent, trigger)
+        return execute_node_with_openai(node, upstream, agent, trigger, connection)
 
     result = f"{label} completed with {len(upstream)} upstream result(s)."
     notes = (
@@ -50,6 +52,7 @@ def execute_node_with_openai(
     upstream: dict[str, dict[str, Any]],
     agent: dict[str, Any] | None,
     trigger: dict[str, Any] | None,
+    connection: Any | None = None,
 ) -> dict[str, Any]:
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is required when WORKFLOW_EXECUTION_MODE=openai")
@@ -59,15 +62,27 @@ def execute_node_with_openai(
     model = str(node.get("model") or (agent or {}).get("model") or settings.workflow_default_model)
     system_prompt = runtime_system_prompt(node, agent)
     user_prompt = runtime_user_prompt(node, upstream, trigger)
-    response = openai_responses_create(model, system_prompt, user_prompt)
+    openai_tools = openai_function_tools(agent)
+    response, usage, tool_calls = run_openai_tool_loop(
+        model,
+        system_prompt,
+        user_prompt,
+        openai_tools,
+        trigger=trigger,
+        connection=connection,
+    )
+    text = response.get("text") or extract_openai_text(response)
+    if not text:
+        raise RuntimeError("OpenAI response did not contain output text")
 
     return {
         "node_id": node_id,
         "label": label,
-        "summary": normalize_node_reply(response["text"]),
+        "summary": normalize_node_reply(text),
         "runtime": "openai",
         "model": model,
-        "usage": response.get("usage") or {},
+        "usage": usage,
+        "tool_calls": tool_calls,
         "upstream_count": len(upstream),
         "agent_id": str(agent["id"]) if agent else None,
         "openclaw_agent_id": agent.get("openclaw_agent_id") if agent else None,
@@ -78,12 +93,14 @@ def execute_node_with_openai(
 def runtime_system_prompt(node: dict[str, Any], agent: dict[str, Any] | None) -> str:
     node_guidance = node_execution_guidance(node)
     if agent:
+        selected_tools = ", ".join(agent.get("tools") or []) or "none"
         return "\n".join(
             [
                 str(agent["system_prompt"]),
                 "",
                 f"Role: {agent['role']}",
                 f"OpenClaw agent id: {agent.get('openclaw_agent_id') or 'not synced'}",
+                f"Available tools: {selected_tools}",
                 "Return exactly two sections in this order: Result, then Notes.",
                 "Keep Result concrete and user-facing.",
                 "Keep Notes short and clearly separated from the result.",
@@ -128,6 +145,8 @@ def runtime_user_prompt(
             "Node guidance:",
             node_guidance,
             "",
+            "Available tools will be executed by the worker when the model calls them.",
+            "",
             "Format:",
             "Result: <the direct answer or outcome first>",
             "Notes: <supporting notes, assumptions, or next-step template>",
@@ -148,8 +167,16 @@ def normalize_node_reply(text: str) -> str:
     stripped = text.strip()
     if not stripped:
         return stripped
-    if "Result:" in stripped and ("Scaffolding:" in stripped or "Notes:" in stripped):
+    if "**Result:**" in stripped or "**Notes:**" in stripped:
         return stripped
+
+    if "Result:" in stripped and ("Scaffolding:" in stripped or "Notes:" in stripped):
+        result_text, notes_text = parse_structured_reply(stripped)
+        if result_text or notes_text:
+            return format_node_reply(
+                result_text or "No result provided.",
+                notes_text or "No additional notes provided.",
+            )
 
     lines = [line.strip() for line in stripped.splitlines() if line.strip()]
     if not lines:
@@ -160,6 +187,33 @@ def normalize_node_reply(text: str) -> str:
     if remainder:
         return format_node_reply(first, remainder)
     return format_node_reply(first, "No additional notes provided.")
+
+
+def parse_structured_reply(text: str) -> tuple[str | None, str | None]:
+    result_text: list[str] = []
+    notes_text: list[str] = []
+    current: list[str] | None = None
+
+    for line in [line.strip() for line in text.splitlines() if line.strip()]:
+        lower = line.lower()
+        if lower.startswith("result:"):
+            current = result_text
+            remainder = line.split(":", 1)[1].strip()
+            if remainder:
+                current.append(remainder)
+            continue
+        if lower.startswith("notes:") or lower.startswith("scaffolding:"):
+            current = notes_text
+            remainder = line.split(":", 1)[1].strip()
+            if remainder:
+                current.append(remainder)
+            continue
+        if current is not None:
+            current.append(line)
+
+    result = "\n".join(result_text).strip() or None
+    notes = "\n".join(notes_text).strip() or None
+    return result, notes
 
 
 def node_execution_guidance(node: dict[str, Any]) -> str:
@@ -194,20 +248,78 @@ def node_execution_guidance(node: dict[str, Any]) -> str:
     )
 
 
-def openai_responses_create(model: str, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-    payload = json.dumps(
-        {
-            "model": model,
-            "input": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "max_output_tokens": 600,
-        }
-    ).encode("utf-8")
+def run_openai_tool_loop(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    tools: list[dict[str, Any]],
+    *,
+    trigger: dict[str, Any] | None,
+    connection: Any | None,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    input_items: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    aggregate_usage: dict[str, Any] = {}
+    tool_trace: list[dict[str, Any]] = []
+    response: dict[str, Any] | None = None
+
+    for _ in range(5):
+        response = openai_responses_create(model, input_items, tools)
+        aggregate_usage = merge_usage(aggregate_usage, response.get("usage") or {})
+        output_items = response.get("output", [])
+        input_items.extend(output_items)
+        function_calls = [item for item in output_items if item.get("type") == "function_call"]
+        if not function_calls:
+            break
+
+        for item in function_calls:
+            arguments = parse_tool_arguments(item.get("arguments"))
+            result = execute_tool(
+                str(item.get("name") or ""),
+                arguments,
+                context={
+                    "trigger": trigger or {},
+                    "workflow_run_id": (trigger or {}).get("workflow_run_id"),
+                    "connection": connection,
+                },
+            )
+            tool_trace.append(
+                {
+                    "call_id": item.get("call_id"),
+                    "name": item.get("name"),
+                    "arguments": arguments,
+                    "output": result,
+                }
+            )
+            input_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": item["call_id"],
+                    "output": json.dumps(result, ensure_ascii=False),
+                }
+            )
+    if response is None:
+        raise RuntimeError("OpenAI did not return a response")
+    return response, aggregate_usage, tool_trace
+
+
+def openai_responses_create(
+    model: str,
+    input_items: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "model": model,
+        "input": input_items,
+        "max_output_tokens": 600,
+    }
+    if tools:
+        payload["tools"] = tools
     request = Request(
         "https://api.openai.com/v1/responses",
-        data=payload,
+        data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {settings.openai_api_key}",
             "Content-Type": "application/json",
@@ -223,10 +335,12 @@ def openai_responses_create(model: str, system_prompt: str, user_prompt: str) ->
     except URLError as caught:
         raise RuntimeError(f"OpenAI request failed: {caught.reason}") from caught
 
-    text = extract_openai_text(data)
-    if not text:
-        raise RuntimeError("OpenAI response did not contain output text")
-    return {"id": data.get("id"), "text": text, "usage": data.get("usage") or {}}
+    return {
+        "id": data.get("id"),
+        "text": extract_openai_text(data),
+        "usage": data.get("usage") or {},
+        "output": data.get("output") or [],
+    }
 
 
 def extract_openai_text(data: dict[str, Any]) -> str:
@@ -240,3 +354,34 @@ def extract_openai_text(data: dict[str, Any]) -> str:
             if isinstance(text, str):
                 parts.append(text)
     return "\n".join(parts).strip()
+
+
+def parse_tool_arguments(arguments: Any) -> dict[str, Any]:
+    if not isinstance(arguments, str) or not arguments.strip():
+        return {}
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError:
+        return {"_raw": arguments}
+    return parsed if isinstance(parsed, dict) else {"_raw": parsed}
+
+
+def merge_usage(total: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(total)
+    total_details = merged.get("input_tokens_details")
+    if not isinstance(total_details, dict):
+        total_details = {}
+    current_details = current.get("input_tokens_details")
+    if not isinstance(current_details, dict):
+        current_details = {}
+    merged["input_tokens"] = int(merged.get("input_tokens") or merged.get("prompt_tokens") or 0) + int(
+        current.get("input_tokens") or current.get("prompt_tokens") or 0
+    )
+    merged["output_tokens"] = int(merged.get("output_tokens") or merged.get("completion_tokens") or 0) + int(
+        current.get("output_tokens") or current.get("completion_tokens") or 0
+    )
+    merged["input_tokens_details"] = {
+        "cached_tokens": int(total_details.get("cached_tokens") or 0)
+        + int(current_details.get("cached_tokens") or 0)
+    }
+    return merged

@@ -121,6 +121,16 @@ export function WorkflowRunDetail({ run }: { run: WorkflowRun | null }) {
               <Metric label="Runtime" value={String(node.output.runtime ?? "-")} />
               <Metric label="Model" value={String(node.output.model ?? "-")} />
             </div>
+            {Array.isArray(node.output.tool_calls) && node.output.tool_calls.length > 0 ? (
+              <div className="mb-2">
+                <Metric
+                  label="Tool calls"
+                  value={node.output.tool_calls
+                    .map((call) => String((call as { name?: string }).name ?? "tool"))
+                    .join(", ")}
+                />
+              </div>
+            ) : null}
             <pre className="max-h-52 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md bg-slate-950 p-3 text-xs text-slate-100">
               {JSON.stringify(node.output, null, 2)}
             </pre>
