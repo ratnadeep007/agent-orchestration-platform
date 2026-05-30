@@ -7,6 +7,8 @@ export type WorkflowGraph = {
 export type WorkflowNode = {
   id: string;
   type: string;
+  agent_id?: string | null;
+  reply?: boolean;
   label?: string;
   role?: string;
   condition?: string;
@@ -41,6 +43,16 @@ export type WorkflowTemplate = {
   description: string;
   graph: WorkflowGraph;
   created_at: string;
+};
+
+export type WorkflowAgent = {
+  id: string;
+  name: string;
+  role: string;
+  model: string;
+  system_prompt: string;
+  sync_status: string;
+  openclaw_agent_id: string | null;
 };
 
 export type WorkflowRunNode = {
@@ -79,6 +91,7 @@ export type WorkflowRun = {
 };
 
 export type FlowNodeData = {
+  agentName?: string;
   condition?: string;
   generated?: boolean;
   label: string;

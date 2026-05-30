@@ -11,6 +11,7 @@ import { GraphBuilder } from "@/features/workflows/graph-builder";
 import { WorkflowRuns, WorkflowRunDetail } from "@/features/workflows/run-panels";
 import { WorkflowPreview } from "@/features/workflows/workflow-preview";
 import type {
+  WorkflowAgent,
   Workflow,
   WorkflowEdge,
   WorkflowGraph,
@@ -22,10 +23,16 @@ import type {
 import { uniqueGraphId, workflowGraphSchema } from "@/features/workflows/utils";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const demoAgentIds = {
+  delegate: "22222222-2222-2222-2222-222222222222",
+  orchestrator: "11111111-1111-1111-1111-111111111111",
+  reviewer: "66666666-6666-6666-6666-666666666666",
+};
 
 const emptyGraph: WorkflowGraph = {
   nodes: [
     {
+      agent_id: demoAgentIds.orchestrator,
       id: "orchestrator",
       label: "Orchestrator",
       role: "Route work to delegates",
@@ -33,13 +40,16 @@ const emptyGraph: WorkflowGraph = {
       position: { x: 80, y: 120 },
     },
     {
+      agent_id: demoAgentIds.delegate,
       id: "delegate",
       label: "Delegate",
       role: "Complete assigned work",
+      reply: true,
       type: "agent",
       position: { x: 360, y: 120 },
     },
     {
+      agent_id: demoAgentIds.reviewer,
       id: "review",
       condition: "needs_revision == true",
       label: "Review",
@@ -74,6 +84,7 @@ const emptyWorkflow: WorkflowPayload = {
 };
 
 export function WorkflowsClient() {
+  const [agents, setAgents] = useState<WorkflowAgent[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -89,6 +100,10 @@ export function WorkflowsClient() {
     () => workflows.find((workflow) => workflow.id === selectedId) ?? null,
     [selectedId, workflows],
   );
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.id, agent])),
+    [agents],
+  );
 
   useEffect(() => {
     void loadAll();
@@ -98,13 +113,15 @@ export function WorkflowsClient() {
     setLoading(true);
     setError(null);
     try {
-      const [workflowResponse, templateResponse] = await Promise.all([
+      const [agentResponse, workflowResponse, templateResponse] = await Promise.all([
+        fetch(`${apiUrl}/agents`, { cache: "no-store" }),
         fetch(`${apiUrl}/workflows`, { cache: "no-store" }),
         fetch(`${apiUrl}/workflows/templates`, { cache: "no-store" }),
       ]);
-      if (!workflowResponse.ok || !templateResponse.ok) {
+      if (!agentResponse.ok || !workflowResponse.ok || !templateResponse.ok) {
         throw new Error("Workflow load failed");
       }
+      setAgents(await agentResponse.json());
       setWorkflows(await workflowResponse.json());
       setTemplates(await templateResponse.json());
     } catch (caught) {
@@ -170,6 +187,7 @@ export function WorkflowsClient() {
         label: type === "agent" ? `Agent ${nodeNumber}` : `Condition ${nodeNumber}`,
         position: { x: lastPosition.x + 280, y: lastPosition.y },
         type,
+        agent_id: type === "agent" && agents[0] ? agents[0].id : null,
       };
       if (type === "agent") {
         node.role = "Describe this agent's responsibility";
@@ -498,13 +516,14 @@ export function WorkflowsClient() {
                 value={form.telegram_command ?? ""}
               />
             </Field>
-            <GraphBuilder
-              graph={previewGraph}
-              onAddEdge={addGraphEdge}
-              onAddNode={addGraphNode}
-              onRemoveEdge={removeGraphEdge}
-              onRemoveNode={removeGraphNode}
-              onSelectNode={setSelectedGraphNodeId}
+              <GraphBuilder
+                graph={previewGraph}
+                agents={agents}
+                onAddEdge={addGraphEdge}
+                onAddNode={addGraphNode}
+                onRemoveEdge={removeGraphEdge}
+                onRemoveNode={removeGraphNode}
+                onSelectNode={setSelectedGraphNodeId}
               onUpdateEdge={updateGraphEdge}
               onUpdateNode={updateGraphNode}
               selectedNodeId={selectedGraphNodeId}
@@ -522,6 +541,7 @@ export function WorkflowsClient() {
           <div className="grid min-w-0 content-start gap-4">
             <WorkflowPreview
               graph={previewGraph}
+              agents={agentsById}
               onNodeMove={(nodeId, position) =>
                 updateGraphNode(nodeId, { position })
               }

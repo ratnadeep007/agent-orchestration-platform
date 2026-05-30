@@ -19,12 +19,14 @@ const nodeTypes = { workflow: WorkflowFlowNode };
 
 export function WorkflowPreview({
   graph,
+  agents,
   onNodeMove,
   onNodeSelect,
   run,
   selectedNodeId,
 }: {
   graph: WorkflowGraph;
+  agents: Map<string, { id: string; name: string; role: string }>;
   onNodeMove: (nodeId: string, position: { x: number; y: number }) => void;
   onNodeSelect: (nodeId: string) => void;
   run: WorkflowRun | null;
@@ -66,6 +68,7 @@ export function WorkflowPreview({
       const position = node.position ?? { x: index * 280, y: 80 };
       return {
         data: {
+          agentName: node.agent_id ? agents.get(node.agent_id)?.name : undefined,
           condition: node.condition,
           label: node.label ?? node.id,
           nodeType: node.type,
@@ -105,7 +108,7 @@ export function WorkflowPreview({
       type: "workflow",
     }));
     return [...declaredNodes, ...generatedNodes];
-  }, [graph.edges, graph.nodes, runNodeStatus, selectedNodeId, terminalStatus]);
+  }, [agents, graph.edges, graph.nodes, runNodeStatus, selectedNodeId, terminalStatus]);
   const flowEdges = useMemo<Edge[]>(() => {
     return graph.edges.map((edge) => ({
       animated: Boolean(edge.condition),
@@ -199,6 +202,11 @@ function WorkflowFlowNode({ data }: NodeProps<Node<FlowNodeData>>) {
       <div className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-slate-950">{data.label}</p>
+          {data.agentName ? (
+            <p className="mt-0.5 truncate text-[11px] text-slate-500">
+              Agent: {data.agentName}
+            </p>
+          ) : null}
           <p className="mt-1 line-clamp-2 text-xs text-slate-500">
             {data.role ?? data.condition ?? data.nodeType}
           </p>

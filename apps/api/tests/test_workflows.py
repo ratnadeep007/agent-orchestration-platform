@@ -162,19 +162,23 @@ def test_workflow_crud_routes():
             "name": "Manual Workflow",
             "description": "Saved from builder",
             "telegram_command": "support",
-            "status": "draft",
-            "graph": {
-                "nodes": [{"id": "planner", "type": "agent"}],
-                "edges": [{"id": "e1", "source": "planner", "target": "done"}],
-                "openclaw": {"strategy": "orchestrator-delegates"},
-            },
-        }
+                "status": "draft",
+                "graph": {
+                    "nodes": [
+                        {"id": "planner", "type": "agent", "agent_id": "agent-123", "reply": True}
+                    ],
+                    "edges": [{"id": "e1", "source": "planner", "target": "done"}],
+                    "openclaw": {"strategy": "orchestrator-delegates"},
+                },
+            }
 
         create_response = client.post("/workflows", json=payload)
         assert create_response.status_code == 201
         created = create_response.json()
         assert created["name"] == "Manual Workflow"
         assert created["graph"]["nodes"][0]["id"] == "planner"
+        assert created["graph"]["nodes"][0]["agent_id"] == "agent-123"
+        assert created["graph"]["nodes"][0]["reply"] is True
         assert created["telegram_command"] == "support"
 
         update_response = client.put(

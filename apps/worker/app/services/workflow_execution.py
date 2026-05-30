@@ -44,7 +44,7 @@ def execute_workflow_run(run_id: UUID) -> None:
 
                 try:
                     agent = find_agent_for_node(connection, node)
-                    output = execute_node(node, upstream, agent)
+                    output = execute_node(node, upstream, agent, trigger=run.get("trigger") or {})
                 except Exception as caught:
                     error = str(caught)
                     mark_node_failed(connection, run_id, node_id, error)
@@ -310,7 +310,7 @@ def create_telegram_reply_if_requested(
             """,
             (
                 run["id"],
-                telegram_reply_body(outputs, error),
+                telegram_reply_body(run, outputs, error),
                 Jsonb(
                     {
                         "chat_id": str(trigger["chat_id"]),
@@ -324,9 +324,19 @@ def create_telegram_reply_if_requested(
     return row["id"]
 
 
-def telegram_reply_body(outputs: dict[str, dict[str, Any]], error: str | None) -> str:
+def telegram_reply_body(
+    run: dict[str, Any],
+    outputs: dict[str, dict[str, Any]],
+    error: str | None,
+) -> str:
     if error:
         return f"Workflow failed: {error}"
+
+    preferred_node_id = preferred_reply_node_id(run)
+    if preferred_node_id and preferred_node_id in outputs:
+        summary = outputs[preferred_node_id].get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
 
     for output in reversed(list(outputs.values())):
         summary = output.get("summary")
@@ -334,6 +344,17 @@ def telegram_reply_body(outputs: dict[str, dict[str, Any]], error: str | None) -
             return summary.strip()
 
     return "Workflow completed."
+
+
+def preferred_reply_node_id(run: dict[str, Any]) -> str | None:
+    graph = run.get("graph_snapshot") or {}
+    nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
+    for node in reversed(nodes):
+        if isinstance(node, dict) and node.get("reply"):
+            node_id = node.get("id")
+            if node_id is not None:
+                return str(node_id)
+    return None
 
 
 def enqueue_message(message_id: UUID) -> None:

@@ -2,12 +2,14 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import { Field } from "./field";
-import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from "./types";
+import type { WorkflowAgent, WorkflowEdge, WorkflowGraph, WorkflowNode } from "./types";
 
 export function GraphBuilder({
   graph,
+  agents,
   onAddEdge,
   onAddNode,
   onRemoveEdge,
@@ -18,6 +20,7 @@ export function GraphBuilder({
   selectedNodeId,
 }: {
   graph: WorkflowGraph;
+  agents: WorkflowAgent[];
   onAddEdge: () => void;
   onAddNode: (type: "agent" | "condition") => void;
   onRemoveEdge: (edgeId: string) => void;
@@ -77,23 +80,60 @@ export function GraphBuilder({
                 value={selectedNode.label ?? ""}
               />
             </Field>
-            <Field label={selectedNode.type === "condition" ? "Condition" : "Role"}>
-              <Input
-                onChange={(event) =>
-                  onUpdateNode(
-                    selectedNode.id,
-                    selectedNode.type === "condition"
-                      ? { condition: event.target.value }
-                      : { role: event.target.value },
-                  )
-                }
-                value={
-                  selectedNode.type === "condition"
-                    ? selectedNode.condition ?? ""
-                    : selectedNode.role ?? ""
-                }
-              />
-            </Field>
+            {selectedNode.type === "condition" ? (
+              <Field label="Condition">
+                <Input
+                  onChange={(event) =>
+                    onUpdateNode(selectedNode.id, { condition: event.target.value })
+                  }
+                  value={selectedNode.condition ?? ""}
+                />
+              </Field>
+            ) : (
+              <div className="grid gap-3">
+                <Field label="Agent">
+                  <select
+                    className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                    onChange={(event) =>
+                      onUpdateNode(selectedNode.id, {
+                        agent_id: event.target.value || null,
+                      })
+                    }
+                    value={selectedNode.agent_id ?? ""}
+                  >
+                    <option value="">Unassigned</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {selectedNode.agent_id ? (
+                  <p className="text-xs text-slate-500">
+                    {agents.find((agent) => agent.id === selectedNode.agent_id)?.role ??
+                      "Selected agent"}
+                  </p>
+                ) : null}
+                <Field label="Role">
+                  <Input
+                    onChange={(event) =>
+                      onUpdateNode(selectedNode.id, { role: event.target.value })
+                    }
+                    value={selectedNode.role ?? ""}
+                  />
+                </Field>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <Checkbox
+                    checked={Boolean(selectedNode.reply)}
+                    onCheckedChange={(checked) =>
+                      onUpdateNode(selectedNode.id, { reply: checked === true })
+                    }
+                  />
+                  Final reply
+                </label>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Field label="X">
                 <Input
