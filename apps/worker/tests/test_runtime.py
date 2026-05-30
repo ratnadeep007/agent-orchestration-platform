@@ -68,6 +68,41 @@ def test_runtime_user_prompt_includes_trigger_context():
     assert "\"text\": \"/research summarize battery recycling\"" in prompt
 
 
+def test_execute_node_with_openai_preserves_usage_payload(monkeypatch):
+    original_mode = nodes.settings.workflow_execution_mode
+    original_key = nodes.settings.openai_api_key
+    nodes.settings.workflow_execution_mode = "openai"
+    nodes.settings.openai_api_key = "test-key"
+    monkeypatch.setattr(
+        nodes,
+        "openai_responses_create",
+        lambda model, system_prompt, user_prompt: {
+            "id": "resp_123",
+            "text": "Result: done\nNotes: ok",
+            "usage": {"input_tokens": 100, "output_tokens": 40},
+        },
+    )
+    try:
+        output = nodes.execute_node_with_openai(
+            {"id": "writer", "label": "Writer", "type": "agent"},
+            {"researcher": {"summary": "facts"}},
+            {
+                "id": "agent-1",
+                "role": "Writer",
+                "system_prompt": "You draft replies.",
+                "openclaw_agent_id": "app-writer",
+            },
+            {"text": "/research summarize battery recycling"},
+        )
+    finally:
+        nodes.settings.workflow_execution_mode = original_mode
+        nodes.settings.openai_api_key = original_key
+
+    assert output["runtime"] == "openai"
+    assert output["usage"] == {"input_tokens": 100, "output_tokens": 40}
+    assert output["openai_response_id"] == "resp_123"
+
+
 def test_preferred_reply_node_is_marked_reply_node():
     from app.services.workflow_execution import preferred_reply_node_id
 
@@ -85,3 +120,18 @@ def test_preferred_reply_node_is_marked_reply_node():
         )
         == "writer"
     )
+
+
+def test_estimate_openai_cost_uses_token_rates():
+    from app.services.workflow_execution import estimate_openai_cost
+
+    cost = estimate_openai_cost(
+        "gpt-4o-mini",
+        {
+            "input_tokens": 1000,
+            "output_tokens": 2000,
+            "input_tokens_details": {"cached_tokens": 250},
+        },
+    )
+
+    assert cost == 0.001331

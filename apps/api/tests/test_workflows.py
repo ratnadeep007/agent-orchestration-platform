@@ -130,15 +130,16 @@ def _run_row(workflow, trigger):
             for node in workflow["graph"]["nodes"]
         ],
         "logs": [
-            {
-                "id": uuid4(),
-                "run_id": run_id,
-                "level": "info",
-                "message": "workflow run queued",
-                "metadata": {"source": "test"},
-                "created_at": now,
-            }
+                {
+                    "id": uuid4(),
+                    "run_id": run_id,
+                    "level": "info",
+                    "message": "workflow run queued",
+                    "metadata": {"source": "test"},
+                    "created_at": now,
+                }
         ],
+        "costs": [],
     }
 
 

@@ -71,6 +71,17 @@ class WorkflowRunLog(BaseModel):
     created_at: str
 
 
+class WorkflowCostRecord(BaseModel):
+    id: UUID
+    run_id: UUID
+    agent_id: UUID | None
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_cost: float
+    created_at: str
+
+
 class WorkflowRun(BaseModel):
     id: UUID
     workflow_id: UUID | None
@@ -84,3 +95,4 @@ class WorkflowRun(BaseModel):
     updated_at: str
     nodes: list[WorkflowRunNode] = Field(default_factory=list)
     logs: list[WorkflowRunLog] = Field(default_factory=list)
+    costs: list[WorkflowCostRecord] = Field(default_factory=list)

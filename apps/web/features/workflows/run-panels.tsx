@@ -94,6 +94,12 @@ export function WorkflowRunDetail({ run }: { run: WorkflowRun | null }) {
         <Metric label="Trigger" value={compactJson(run.trigger)} />
       </div>
 
+      <div className="mb-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+        <Metric label="Prompt tokens" value={sumCostField(run.costs, "prompt_tokens")} />
+        <Metric label="Completion tokens" value={sumCostField(run.costs, "completion_tokens")} />
+        <Metric label="Cost" value={sumCostField(run.costs, "total_cost", true)} />
+      </div>
+
       {run.error ? (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {run.error}
@@ -123,6 +129,30 @@ export function WorkflowRunDetail({ run }: { run: WorkflowRun | null }) {
             ) : null}
           </div>
         ))}
+      </div>
+
+      <div className="mt-4">
+        <h4 className="mb-2 text-sm font-semibold">Cost Tracking</h4>
+        <div className="grid max-h-48 min-w-0 gap-2 overflow-auto">
+          {run.costs.length === 0 ? (
+            <p className="rounded-md border border-dashed border-slate-200 p-3 text-sm text-slate-500">
+              No cost records yet.
+            </p>
+          ) : null}
+          {run.costs.map((cost) => (
+            <div className="min-w-0 rounded-md border border-slate-200 p-2 text-xs" key={cost.id}>
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <span className="truncate font-medium text-slate-700">{cost.model}</span>
+                <span className="shrink-0 text-slate-500">{formatDateTime(cost.created_at)}</span>
+              </div>
+              <div className="mt-1 grid gap-1 text-slate-500 sm:grid-cols-3">
+                <span>Prompt: {cost.prompt_tokens}</span>
+                <span>Completion: {cost.completion_tokens}</span>
+                <span>Cost: {cost.total_cost.toFixed(6)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mt-4">
@@ -188,4 +218,13 @@ function formatDateTime(value: string) {
 function compactJson(value: Record<string, unknown>) {
   const text = JSON.stringify(value);
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function sumCostField(
+  costs: WorkflowRun["costs"],
+  field: "prompt_tokens" | "completion_tokens" | "total_cost",
+  fixed = false,
+) {
+  const total = costs.reduce((accumulator, cost) => accumulator + cost[field], 0);
+  return fixed ? total.toFixed(6) : String(total);
 }

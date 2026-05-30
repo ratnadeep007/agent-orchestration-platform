@@ -14,6 +14,12 @@ from app.runtime.nodes import execute_node
 
 logger = logging.getLogger("agent_platform.worker")
 
+OPENAI_PRICE_PER_1M_TOKENS = {
+    "gpt-4o-mini": {"input": 0.15, "cached_input": 0.075, "output": 0.60},
+    "gpt-4o": {"input": 2.50, "cached_input": 1.25, "output": 10.00},
+    "gpt-4.1-mini": {"input": 0.40, "cached_input": 0.10, "output": 1.60},
+}
+
 
 def execute_workflow_run(run_id: UUID) -> None:
     with connect(settings.database_url, row_factory=dict_row) as connection:
@@ -61,6 +67,7 @@ def execute_workflow_run(run_id: UUID) -> None:
 
                 outputs[node_id] = output
                 mark_node_succeeded(connection, run_id, node, output, agent)
+                record_cost_if_needed(connection, run_id, node, output, agent)
                 log(
                     connection,
                     run_id,
@@ -168,6 +175,62 @@ def mark_node_succeeded(
                 ),
             ),
         )
+
+
+def record_cost_if_needed(
+    connection,
+    run_id: UUID,
+    node: dict[str, Any],
+    output: dict[str, Any],
+    agent: dict[str, Any] | None,
+) -> None:
+    if output.get("runtime") != "openai":
+        return
+
+    usage = output.get("usage") or {}
+    prompt_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+    completion_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+    if prompt_tokens == 0 and completion_tokens == 0:
+        return
+    total_cost = estimate_openai_cost(output.get("model") or node.get("model") or settings.workflow_default_model, usage)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO cost_records (
+                run_id, agent_id, model, prompt_tokens, completion_tokens, total_cost
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                run_id,
+                agent["id"] if agent else None,
+                output.get("model") or node.get("model") or settings.workflow_default_model,
+                prompt_tokens,
+                completion_tokens,
+                total_cost,
+            ),
+        )
+
+
+def estimate_openai_cost(model: str, usage: dict[str, Any]) -> float:
+    price = OPENAI_PRICE_PER_1M_TOKENS.get(model, OPENAI_PRICE_PER_1M_TOKENS["gpt-4o-mini"])
+    prompt_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+    completion_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+
+    cached_tokens = 0
+    input_details = usage.get("input_tokens_details")
+    if isinstance(input_details, dict):
+        cached_tokens = int(input_details.get("cached_tokens") or 0)
+    cached_tokens = min(cached_tokens, prompt_tokens)
+    uncached_tokens = max(prompt_tokens - cached_tokens, 0)
+
+    total = (
+        (uncached_tokens / 1_000_000) * price["input"]
+        + (cached_tokens / 1_000_000) * price["cached_input"]
+        + (completion_tokens / 1_000_000) * price["output"]
+    )
+    return round(total, 6)
 
 
 def mark_node_failed(connection, run_id: UUID, node_id: str, error: str) -> None:

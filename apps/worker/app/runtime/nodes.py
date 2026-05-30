@@ -67,6 +67,7 @@ def execute_node_with_openai(
         "summary": normalize_node_reply(response["text"]),
         "runtime": "openai",
         "model": model,
+        "usage": response.get("usage") or {},
         "upstream_count": len(upstream),
         "agent_id": str(agent["id"]) if agent else None,
         "openclaw_agent_id": agent.get("openclaw_agent_id") if agent else None,
@@ -225,7 +226,7 @@ def openai_responses_create(model: str, system_prompt: str, user_prompt: str) ->
     text = extract_openai_text(data)
     if not text:
         raise RuntimeError("OpenAI response did not contain output text")
-    return {"id": data.get("id"), "text": text}
+    return {"id": data.get("id"), "text": text, "usage": data.get("usage") or {}}
 
 
 def extract_openai_text(data: dict[str, Any]) -> str:

@@ -189,7 +189,17 @@ class WorkflowRepository:
                 (row["id"],),
             )
             logs = list(cursor.fetchall())
-            return {**row, "nodes": nodes, "logs": logs}
+            cursor.execute(
+                """
+                SELECT *
+                FROM cost_records
+                WHERE run_id = %s
+                ORDER BY created_at ASC
+                """,
+                (row["id"],),
+            )
+            costs = list(cursor.fetchall())
+            return {**row, "nodes": nodes, "logs": logs, "costs": costs}
 
 
 class WorkflowRunBus:

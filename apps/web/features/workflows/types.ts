@@ -76,6 +76,17 @@ export type WorkflowRunLog = {
   created_at: string;
 };
 
+export type WorkflowCostRecord = {
+  id: string;
+  run_id: string;
+  agent_id: string | null;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_cost: number;
+  created_at: string;
+};
+
 export type WorkflowRun = {
   id: string;
   workflow_id: string | null;
@@ -88,6 +99,7 @@ export type WorkflowRun = {
   updated_at: string;
   nodes: WorkflowRunNode[];
   logs: WorkflowRunLog[];
+  costs: WorkflowCostRecord[];
 };
 
 export type FlowNodeData = {

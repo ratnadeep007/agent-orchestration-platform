@@ -10,7 +10,23 @@ Monorepo scaffold for an AI agent orchestration challenge.
 - Persistence: PostgreSQL
 - Queue/cache: Redis
 - Agent runtime: OpenClaw Gateway
-- External channel: Telegram through OpenClaw
+- External channel: Telegram owned by the app, with OpenClaw kept as the internal agent runtime
+
+## Architecture
+
+```mermaid
+flowchart LR
+  T[Telegram] -->|webhook| API[FastAPI API]
+  API --> DB[(PostgreSQL)]
+  API --> Q[Redis queue]
+  Q --> W[Python worker]
+  W --> DB
+  W --> TG[Telegram Bot API]
+  API --> UI[Next.js UI]
+  UI --> API
+  API --> OC[OpenClaw Gateway]
+  W --> OC
+```
 
 ## Local Setup
 
@@ -58,9 +74,9 @@ curl http://localhost:8000/ready
 
 ## Runtime Decision
 
-OpenClaw is the runtime and channel gateway for this assignment. It owns live agent execution, sessions, memory files, multi-agent routing, and Telegram delivery. The custom app owns the visual UI, app database, workflow/template configuration, monitoring, and the bridge that syncs app-defined agents into OpenClaw-compatible config.
+OpenClaw is the internal runtime dependency for this assignment. It owns live agent execution, sessions, memory files, and multi-agent routing. The custom app owns the visual UI, app database, workflow/template configuration, monitoring, Telegram delivery, and the bridge that syncs app-defined agents into OpenClaw-compatible config.
 
-OpenClaw is a better fit than LangGraph for this challenge because Telegram and always-on gateway behavior are central requirements. LangGraph is stronger for graph-native workflow modeling, so the app will keep a visual workflow model and map it into OpenClaw orchestrator/delegate agent configuration.
+OpenClaw is a better fit than LangGraph for this challenge because Telegram and always-on gateway behavior are central requirements. LangGraph is stronger for graph-native workflow modeling, so the app keeps a visual workflow model and maps it into OpenClaw orchestrator/delegate agent configuration.
 
 ## OpenClaw Agent Sync
 
@@ -221,5 +237,5 @@ apps/
   worker/   background worker process
 ```
 
-Current implementation includes Docker boot wiring, OpenClaw gateway wiring, PostgreSQL migrations, agent CRUD/config API, a shadcn-based agent management UI, workflow templates/runs, a Redis-backed message delivery queue, and Telegram webhook/outbound delivery scaffolding.
-The workflow builder can save visual graph JSON, preview nodes/edges, instantiate the built-in Research Brief and Support Triage templates, preserve OpenClaw orchestrator/delegate mapping metadata, start deterministic workflow runs, and display per-node run state.
+Current implementation includes Docker boot wiring, OpenClaw gateway wiring, PostgreSQL migrations, agent CRUD/config API, a shadcn-based agent management UI, workflow templates/runs, a Redis-backed message delivery queue, token usage tracking, and Telegram webhook/outbound delivery scaffolding.
+The workflow builder can save visual graph JSON, preview nodes/edges, instantiate the built-in Research Brief and Support Triage templates, preserve OpenClaw orchestrator/delegate mapping metadata, start deterministic workflow runs, and display per-node run state and cost rows.
