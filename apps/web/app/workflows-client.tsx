@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { GitBranch, Loader2, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -109,7 +109,7 @@ export function WorkflowsClient() {
     void loadAll();
   }, []);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -129,7 +129,7 @@ export function WorkflowsClient() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   function selectWorkflow(workflow: Workflow) {
     setSelectedId(workflow.id);
@@ -253,7 +253,7 @@ export function WorkflowsClient() {
     }));
   }
 
-  async function loadRuns(workflowId = selectedId) {
+  const loadRuns = useCallback(async (workflowId = selectedId) => {
     if (!workflowId) {
       setRuns([]);
       return;
@@ -276,7 +276,7 @@ export function WorkflowsClient() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Run load failed");
     }
-  }
+  }, [selectedId]);
 
   async function instantiateTemplate(templateId: string) {
     setLoading(true);
@@ -388,6 +388,38 @@ export function WorkflowsClient() {
     () => runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId],
   );
+
+  useEffect(() => {
+    if (!selectedId) {
+      setRuns([]);
+      setSelectedRunId(null);
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const poll = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      await loadRuns(selectedId);
+      if (cancelled) {
+        return;
+      }
+      timer = window.setTimeout(poll, 4000);
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [loadRuns, selectedId]);
 
   return (
     <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
