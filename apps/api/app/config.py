@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     openclaw_container_workspace_root: str = "/home/node/.openclaw/workspace"
     openclaw_container_agent_root: str = "/home/node/.openclaw/agents"
     agent_runtime_provider: str = "openclaw"
+    worker_heartbeat_key: str = "worker:heartbeat"
+    worker_heartbeat_ttl_seconds: int = 90
     telegram_bot_token: str = ""
     telegram_allowed_chat_id: str = ""
     telegram_webhook_secret: str = ""

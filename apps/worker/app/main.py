@@ -5,6 +5,7 @@ from uuid import UUID
 from redis import Redis
 
 from app.config import settings
+from app.heartbeat import mark_worker_heartbeat
 from app.queues import (
     MESSAGE_QUEUE,
     QUEUE_SOCKET_TIMEOUT_SECONDS,
@@ -25,16 +26,19 @@ def main() -> None:
         socket_timeout=QUEUE_SOCKET_TIMEOUT_SECONDS,
     )
     logger.info("worker started")
+    mark_worker_heartbeat(redis)
 
     while True:
         try:
             item = redis.brpop([WORKFLOW_RUN_QUEUE, MESSAGE_QUEUE], timeout=QUEUE_WAIT_SECONDS)
             if item is None:
                 logger.info("worker heartbeat")
+                mark_worker_heartbeat(redis)
                 continue
 
             queue, raw_id = item
             dispatch_job(queue.decode("utf-8"), UUID(raw_id.decode("utf-8")))
+            mark_worker_heartbeat(redis)
         except Exception:
             logger.exception("worker dependency check failed")
 

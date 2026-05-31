@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Bot, Loader2, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -49,6 +50,9 @@ const emptyAgent: AgentPayload = {
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export function AgentsClient() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<AgentPayload>(emptyAgent);
@@ -62,12 +66,44 @@ export function AgentsClient() {
     () => agents.find((agent) => agent.id === selectedId) ?? null,
     [agents, selectedId],
   );
+  const requestedAgentId = searchParams.get("agent");
 
   useEffect(() => {
     void loadAgents();
   }, []);
 
-  function selectAgent(agent: Agent) {
+  useEffect(() => {
+    if (!agents.length) {
+      return;
+    }
+
+    if (requestedAgentId) {
+      const agent = agents.find((item) => item.id === requestedAgentId);
+      if (agent && agent.id !== selectedId) {
+        selectAgent(agent, false);
+      } else if (!agent && selectedId) {
+        resetForm(false);
+      }
+      return;
+    }
+
+    if (!requestedAgentId && selectedId) {
+      resetForm(false);
+    }
+  }, [agents, requestedAgentId, selectedId]);
+
+  function setAgentParam(agentId: string | null) {
+    const params = new URLSearchParams(searchParams);
+    if (agentId) {
+      params.set("agent", agentId);
+    } else {
+      params.delete("agent");
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function selectAgent(agent: Agent, updateUrl = true) {
     const customTools = agent.tools.filter((tool) => !BUILTIN_TOOL_NAMES.includes(tool));
     setSelectedId(agent.id);
     setForm({
@@ -86,15 +122,21 @@ export function AgentsClient() {
     setCustomToolsText(customTools.join(", "));
     setSchedulesText(JSON.stringify(agent.schedules, null, 2));
     setMemoryText(JSON.stringify(agent.memory, null, 2));
+    if (updateUrl) {
+      setAgentParam(agent.id);
+    }
   }
 
-  function resetForm() {
+  function resetForm(updateUrl = true) {
     setSelectedId(null);
     setForm(emptyAgent);
     setCustomToolsText("");
     setSchedulesText("[]");
     setMemoryText("{}");
     setError(null);
+    if (updateUrl) {
+      setAgentParam(null);
+    }
   }
 
   async function loadAgents() {
@@ -239,7 +281,7 @@ export function AgentsClient() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button onClick={resetForm} type="button" variant="outline">
+            <Button onClick={() => resetForm()} type="button" variant="outline">
               New
             </Button>
             <Button disabled={!selectedId || loading} onClick={deleteAgent} type="button" variant="outline">

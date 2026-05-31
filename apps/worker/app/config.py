@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     workflow_execution_mode: str = "mock"
     workflow_default_model: str = "gpt-4o-mini"
+    worker_heartbeat_key: str = "worker:heartbeat"
+    worker_heartbeat_ttl_seconds: int = 90
     telegram_bot_token: str = ""
     telegram_allowed_chat_id: str = ""
     firecrawl_api_key: str = ""

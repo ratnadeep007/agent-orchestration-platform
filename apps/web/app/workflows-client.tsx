@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { GitBranch, Loader2, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,6 +85,9 @@ const emptyWorkflow: WorkflowPayload = {
 };
 
 export function WorkflowsClient() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [agents, setAgents] = useState<WorkflowAgent[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
@@ -100,6 +104,7 @@ export function WorkflowsClient() {
     () => workflows.find((workflow) => workflow.id === selectedId) ?? null,
     [selectedId, workflows],
   );
+  const requestedWorkflowId = searchParams.get("workflow");
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent])),
     [agents],
@@ -131,7 +136,18 @@ export function WorkflowsClient() {
     }
   }, []);
 
-  function selectWorkflow(workflow: Workflow) {
+  function setWorkflowParam(workflowId: string | null) {
+    const params = new URLSearchParams(searchParams);
+    if (workflowId) {
+      params.set("workflow", workflowId);
+    } else {
+      params.delete("workflow");
+    }
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function selectWorkflow(workflow: Workflow, updateUrl = true) {
     setSelectedId(workflow.id);
     setForm({
       description: workflow.description,
@@ -143,15 +159,21 @@ export function WorkflowsClient() {
     setGraphText(JSON.stringify(workflow.graph, null, 2));
     setSelectedGraphNodeId(workflow.graph.nodes[0]?.id ?? null);
     void loadRuns(workflow.id);
+    if (updateUrl) {
+      setWorkflowParam(workflow.id);
+    }
   }
 
-  function resetForm() {
+  function resetForm(updateUrl = true) {
     setSelectedId(null);
     setForm(emptyWorkflow);
     setGraphText(JSON.stringify(emptyGraph, null, 2));
     setSelectedGraphNodeId(emptyGraph.nodes[0]?.id ?? null);
     setRuns([]);
     setError(null);
+    if (updateUrl) {
+      setWorkflowParam(null);
+    }
   }
 
   function updateGraphFromBuilder(updater: (graph: WorkflowGraph) => WorkflowGraph) {
@@ -421,6 +443,26 @@ export function WorkflowsClient() {
     };
   }, [loadRuns, selectedId]);
 
+  useEffect(() => {
+    if (!workflows.length) {
+      return;
+    }
+
+    if (requestedWorkflowId) {
+      const workflow = workflows.find((item) => item.id === requestedWorkflowId);
+      if (workflow && workflow.id !== selectedId) {
+        selectWorkflow(workflow, false);
+      } else if (!workflow && selectedId) {
+        resetForm(false);
+      }
+      return;
+    }
+
+    if (!requestedWorkflowId && selectedId) {
+      resetForm(false);
+    }
+  }, [requestedWorkflowId, selectedId, workflows]);
+
   return (
     <div className="grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
       <aside className="min-w-0 rounded-lg border border-slate-200 bg-white">
@@ -491,7 +533,7 @@ export function WorkflowsClient() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={resetForm} type="button" variant="outline">
+            <Button onClick={() => resetForm()} type="button" variant="outline">
               New
             </Button>
             <Button disabled={!selectedId || loading} onClick={deleteWorkflow} type="button" variant="outline">

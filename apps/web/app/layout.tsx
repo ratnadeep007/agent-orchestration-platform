@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Agent Orchestration Platform",
-  description: "AI agent orchestration platform scaffold",
+  description: "AI agent orchestration platform",
 };
 
 export default function RootLayout({

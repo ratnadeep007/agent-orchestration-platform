@@ -109,6 +109,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_ID: ${TELEGRAM_ALLOWED_CHAT_ID:-}
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      WORKER_HEARTBEAT_KEY: ${WORKER_HEARTBEAT_KEY:-worker:heartbeat}
+      WORKER_HEARTBEAT_TTL_SECONDS: ${WORKER_HEARTBEAT_TTL_SECONDS:-90}
     depends_on:
       postgres:
         condition: service_healthy

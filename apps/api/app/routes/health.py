@@ -1,4 +1,6 @@
 from typing import Any
+import time
+
 from psycopg import connect
 from redis import Redis
 
@@ -23,6 +25,18 @@ def check_redis() -> bool:
         return False
 
 
+def check_worker() -> bool:
+    try:
+        redis = Redis.from_url(settings.redis_url, socket_connect_timeout=2)
+        raw = redis.get(settings.worker_heartbeat_key)
+        if not raw:
+            return False
+        heartbeat = float(raw.decode("utf-8"))
+        return (time.time() - heartbeat) <= settings.worker_heartbeat_ttl_seconds
+    except Exception:
+        return False
+
+
 def readiness_payload() -> dict[str, Any]:
     runtime = get_runtime_provider()
     runtime_reachable = runtime.check_health()
@@ -31,6 +45,7 @@ def readiness_payload() -> dict[str, Any]:
         "database_connected": check_postgres(),
         "redis_configured": bool(settings.redis_url),
         "redis_connected": check_redis(),
+        "worker_reachable": check_worker(),
         "runtime_provider": runtime.name,
         "runtime_configured": bool(settings.openclaw_gateway_url),
         "runtime_reachable": runtime_reachable,
