@@ -1,8 +1,5 @@
-import json
 import logging
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from uuid import UUID
 
 from psycopg import connect
@@ -10,6 +7,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.config import settings
+from app.channels.registry import deliver_message
 
 logger = logging.getLogger("agent_platform.worker")
 
@@ -21,14 +19,14 @@ def mark_message_delivered(message_id: UUID) -> None:
             logger.info("message %s was missing", message_id)
             return
 
-        if message["channel"] == "telegram" and message["direction"] == "outbound":
+        if message["direction"] == "outbound":
             try:
-                telegram_response = send_telegram_message(message)
+                delivery_response = deliver_message(message)
                 mark_message_state(
                     connection,
                     message_id,
                     "delivered",
-                    {"telegram_response": telegram_response},
+                    {"delivery_response": delivery_response},
                 )
             except Exception as caught:
                 mark_message_state(connection, message_id, "failed", {"error": str(caught)})
@@ -76,31 +74,3 @@ def mark_message_state(
             ),
         )
     connection.commit()
-
-
-def send_telegram_message(message: dict[str, Any]) -> dict[str, Any]:
-    if not settings.telegram_bot_token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is required for outbound Telegram delivery")
-
-    chat_id = str(message["metadata"].get("chat_id", ""))
-    if not chat_id:
-        raise RuntimeError("metadata.chat_id is required for outbound Telegram delivery")
-
-    if settings.telegram_allowed_chat_id and chat_id != settings.telegram_allowed_chat_id:
-        raise RuntimeError("Telegram chat is not allowed")
-
-    payload = json.dumps({"chat_id": chat_id, "text": message["body"]}).encode("utf-8")
-    request = Request(
-        f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as caught:
-        body = caught.read().decode("utf-8")
-        raise RuntimeError(f"Telegram send failed with HTTP {caught.code}: {body}") from caught
-    except URLError as caught:
-        raise RuntimeError(f"Telegram send failed: {caught.reason}") from caught

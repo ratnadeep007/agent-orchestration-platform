@@ -79,12 +79,14 @@ OpenClaw is the internal runtime dependency for the stack. It owns live agent ex
 
 OpenClaw is a better fit than LangGraph here because Telegram and always-on gateway behavior are central requirements. LangGraph is stronger for graph-native workflow modeling, so the app keeps a visual workflow model and maps it into OpenClaw orchestrator/delegate agent configuration.
 
+The active runtime provider is selected with `AGENT_RUNTIME_PROVIDER`, which currently defaults to `openclaw`.
+
 ## OpenClaw Agent Sync
 
-The app database is the source of truth for agent configuration. To sync an app agent into OpenClaw:
+The app database is the source of truth for agent configuration. To sync an app agent into the active runtime provider:
 
 ```bash
-curl -X POST http://localhost:8000/agents/<agent-id>/sync-openclaw
+curl -X POST http://localhost:8000/agents/<agent-id>/sync-runtime
 ```
 
 The sync writes a generated OpenClaw workspace under `.openclaw/workspace/app-agents/<agent-id>/` and upserts the isolated agent entry in `.openclaw/config/openclaw.json`.

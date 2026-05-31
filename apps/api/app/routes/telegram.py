@@ -4,10 +4,11 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, status
 from psycopg import Connection
 
 from app.bus.message import MessageBus, get_message_bus
+from app.channels.registry import get_channel_adapter
 from app.config import settings
 from app.db import get_connection
 from app.models.message import Message, RuntimeEventCreate
@@ -24,6 +25,7 @@ from app.serializers.message import serialize_message
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 logger = logging.getLogger("agent_platform.api.telegram")
+telegram_channel = get_channel_adapter("telegram")
 
 
 def get_telegram_message_repository(
@@ -40,31 +42,16 @@ def telegram_webhook(
     workflow_repository: WorkflowRepository = Depends(get_workflow_repository),
     workflow_bus: WorkflowRunBus = Depends(get_workflow_run_bus),
 ) -> TelegramWebhookResponse:
-    _validate_webhook_secret(x_telegram_bot_api_secret_token)
+    telegram_channel.validate_webhook_secret(x_telegram_bot_api_secret_token)
 
-    message = update.get("message") or update.get("edited_message")
-    if not isinstance(message, dict):
+    parsed = telegram_channel.parse_inbound_update(update)
+    if not parsed:
         return TelegramWebhookResponse(accepted=False)
-
-    chat = message.get("chat")
-    if not isinstance(chat, dict) or chat.get("id") is None:
-        return TelegramWebhookResponse(accepted=False)
-
-    chat_id = str(chat["id"])
-    _validate_allowed_chat(chat_id)
-
-    text = str(message.get("text") or message.get("caption") or "")
-    if not text:
-        return TelegramWebhookResponse(accepted=False)
+    chat_id = parsed["chat_id"]
+    telegram_channel.validate_allowed_chat(chat_id)
+    text = parsed["text"]
 
     telegram_command, command_args, command_prefix = _parse_telegram_command(text)
-
-    telegram_message_id = message.get("message_id")
-    external_id = (
-        f"telegram:{chat_id}:{telegram_message_id}"
-        if telegram_message_id is not None
-        else f"telegram:{chat_id}:{update.get('update_id', 'unknown')}"
-    )
     row = repository.mirror_event(
         RuntimeEventCreate(
             source="telegram",
@@ -72,12 +59,12 @@ def telegram_webhook(
             channel="telegram",
             direction="inbound",
             body=text,
-            external_id=external_id,
+            external_id=parsed["external_id"],
             metadata={
                 "chat_id": chat_id,
                 "update_id": update.get("update_id"),
-                "message_id": telegram_message_id,
-                "from": message.get("from", {}),
+                "message_id": parsed["telegram_message_id"],
+                "from": parsed["from"],
             },
         )
     )
@@ -101,11 +88,7 @@ def telegram_webhook(
         attached = repository.attach_run(row["id"], workflow_run_id)
         if attached:
             row = attached
-    return TelegramWebhookResponse(
-        accepted=True,
-        message=serialize_message(row),
-        workflow_run_id=workflow_run_id,
-    )
+    return TelegramWebhookResponse(accepted=True, message=serialize_message(row), workflow_run_id=workflow_run_id)
 
 
 @router.post("/messages", response_model=Message, status_code=status.HTTP_202_ACCEPTED)
@@ -114,7 +97,7 @@ def queue_telegram_message(
     repository: MessageRepository = Depends(get_telegram_message_repository),
     bus: MessageBus = Depends(get_message_bus),
 ) -> Message:
-    _validate_allowed_chat(payload.chat_id)
+    telegram_channel.validate_allowed_chat(payload.chat_id)
     row = repository.create_outbound(
         channel="telegram",
         body=payload.body,
@@ -122,22 +105,6 @@ def queue_telegram_message(
     )
     bus.enqueue(row["id"])
     return serialize_message(row)
-
-
-def _validate_webhook_secret(received_secret: str | None) -> None:
-    if settings.telegram_webhook_secret and received_secret != settings.telegram_webhook_secret:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Telegram webhook secret",
-        )
-
-
-def _validate_allowed_chat(chat_id: str) -> None:
-    if settings.telegram_allowed_chat_id and chat_id != settings.telegram_allowed_chat_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Telegram chat is not allowed",
-        )
 
 
 def _start_telegram_workflow(

@@ -115,15 +115,18 @@ def test_agent_sync_route_marks_agent_synced(monkeypatch):
     repository = FakeAgentRepository()
     app.dependency_overrides[get_agent_repository] = lambda: repository
 
-    def fake_sync(row):
-        return {
-            "openclaw_agent_id": "app-planner-123",
-            "openclaw_workspace_path": "/home/node/.openclaw/workspace/app-agents/123",
-            "local_workspace_path": "/openclaw/workspace/app-agents/123",
-            "files": ["/openclaw/workspace/app-agents/123/AGENTS.md"],
-        }
+    class FakeRuntimeProvider:
+        name = "openclaw"
 
-    monkeypatch.setattr("app.routes.agent.sync_agent_to_openclaw", fake_sync)
+        def sync_agent(self, row):
+            return {
+                "openclaw_agent_id": "app-planner-123",
+                "openclaw_workspace_path": "/home/node/.openclaw/workspace/app-agents/123",
+                "local_workspace_path": "/openclaw/workspace/app-agents/123",
+                "files": ["/openclaw/workspace/app-agents/123/AGENTS.md"],
+            }
+
+    monkeypatch.setattr("app.routes.agent.get_runtime_provider", lambda: FakeRuntimeProvider())
 
     try:
         client = TestClient(app)

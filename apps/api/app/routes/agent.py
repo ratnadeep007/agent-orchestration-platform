@@ -2,8 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.integrations.runtime import get_runtime_provider
 from app.models.agent import Agent, AgentCreate, AgentSyncResult, AgentUpdate
-from app.integrations.openclaw import sync_agent_to_openclaw
 from app.repository.agent import AgentRepository, get_agent_repository
 from app.serializers.agent import serialize_agent
 
@@ -55,6 +55,7 @@ def delete_agent(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
 
+@router.post("/{agent_id}/sync-runtime", response_model=AgentSyncResult)
 @router.post("/{agent_id}/sync-openclaw", response_model=AgentSyncResult)
 def sync_agent(
     agent_id: UUID,
@@ -64,7 +65,8 @@ def sync_agent(
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    result = sync_agent_to_openclaw(row)
+    runtime = get_runtime_provider()
+    result = runtime.sync_agent(row)
     synced = repository.mark_synced(
         agent_id,
         result["openclaw_agent_id"],
