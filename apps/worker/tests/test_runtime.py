@@ -22,8 +22,8 @@ def test_mock_node_execution_includes_agent_metadata():
     assert output["runtime"] == "mock"
     assert output["upstream_count"] == 1
     assert output["openclaw_agent_id"] == "app-writer-abc"
-    assert output["summary"].startswith("**Result:**")
-    assert "**Notes:**" in output["summary"]
+    assert output["summary"].startswith("Result:")
+    assert "\n\nNotes:\n" in output["summary"]
 
 
 def test_openai_mode_requires_api_key():
@@ -81,7 +81,7 @@ def test_execute_node_with_openai_preserves_usage_payload(monkeypatch):
         "openai_responses_create",
         lambda model, input_items, tools=None: {
             "id": "resp_123",
-            "text": "Result: done\nNotes: ok",
+            "text": "{\"result\":\"done\",\"notes\":\"ok\"}",
             "usage": {"input_tokens": 100, "output_tokens": 40},
             "output": [],
         },
@@ -135,7 +135,7 @@ def test_execute_node_with_openai_executes_tool_calls(monkeypatch):
             },
             {
                 "id": "resp_2",
-                "text": "Result: done\nNotes: tool used",
+                "text": "{\"result\":\"done\",\"notes\":\"tool used\"}",
                 "usage": {"input_tokens": 12, "output_tokens": 4},
                 "output": [],
             },
@@ -182,7 +182,7 @@ def test_execute_node_with_openai_executes_tool_calls(monkeypatch):
     assert output["usage"]["input_tokens"] == 22
     assert output["usage"]["output_tokens"] == 5
     assert output["tool_calls"][0]["name"] == "recent_messages"
-    assert output["summary"].startswith("**Result:**")
+    assert output["summary"] == "Result:\ndone\n\nNotes:\ntool used"
     assert seen_calls == [
         {
             "name": "recent_messages",
@@ -190,6 +190,15 @@ def test_execute_node_with_openai_executes_tool_calls(monkeypatch):
             "workflow_run_id": "run-123",
         }
     ]
+
+
+def test_normalize_node_reply_uses_json_contract():
+    assert (
+        nodes.normalize_node_reply(
+            "{\"result\":\"SpaceX is launching soon.\",\"notes\":\"Watch pricing.\"}"
+        )
+        == "Result:\nSpaceX is launching soon.\n\nNotes:\nWatch pricing."
+    )
 
 
 def test_preferred_reply_node_is_marked_reply_node():

@@ -101,9 +101,10 @@ def runtime_system_prompt(node: dict[str, Any], agent: dict[str, Any] | None) ->
                 f"Role: {agent['role']}",
                 f"OpenClaw agent id: {agent.get('openclaw_agent_id') or 'not synced'}",
                 f"Available tools: {selected_tools}",
-                "Return exactly two sections in this order: Result, then Notes.",
-                "Keep Result concrete and user-facing.",
-                "Keep Notes short and clearly separated from the result.",
+                "Return only JSON that matches this schema: {\"result\": string, \"notes\": string}.",
+                "Keep result concrete and user-facing.",
+                "Keep notes short and clearly separated from the result.",
+                "Do not use markdown, prose outside JSON, or nested Result/Notes labels.",
                 "If the workflow was triggered by a user message, use that request as the primary task.",
                 node_guidance,
             ]
@@ -113,9 +114,10 @@ def runtime_system_prompt(node: dict[str, Any], agent: dict[str, Any] | None) ->
         [
             f"You are executing workflow node {node.get('label') or node.get('id')}.",
             f"Role: {node.get('role') or 'workflow agent'}",
-            "Return exactly two sections in this order: Result, then Notes.",
-            "Keep Result concrete and user-facing.",
-            "Keep Notes short and clearly separated from the result.",
+            "Return only JSON that matches this schema: {\"result\": string, \"notes\": string}.",
+            "Keep result concrete and user-facing.",
+            "Keep notes short and clearly separated from the result.",
+            "Do not use markdown, prose outside JSON, or nested Result/Notes labels.",
             "If the workflow was triggered by a user message, use that request as the primary task.",
             node_guidance,
         ]
@@ -148,8 +150,7 @@ def runtime_user_prompt(
             "Available tools will be executed by the worker when the model calls them.",
             "",
             "Format:",
-            "Result: <the direct answer or outcome first>",
-            "Notes: <supporting notes, assumptions, or next-step template>",
+            "{\"result\":\"<the direct answer or outcome first>\",\"notes\":\"<supporting notes, assumptions, or next-step context>\"}",
         ]
     )
 
@@ -157,8 +158,8 @@ def runtime_user_prompt(
 def format_node_reply(result: str, notes: str) -> str:
     return "\n\n".join(
         [
-            f"**Result:**\n{result.strip()}",
-            f"**Notes:**\n{notes.strip()}",
+            f"Result:\n{result.strip()}",
+            f"Notes:\n{notes.strip()}",
         ]
     )
 
@@ -167,16 +168,13 @@ def normalize_node_reply(text: str) -> str:
     stripped = text.strip()
     if not stripped:
         return stripped
-    if "**Result:**" in stripped or "**Notes:**" in stripped:
-        return stripped
 
-    if "Result:" in stripped and ("Scaffolding:" in stripped or "Notes:" in stripped):
-        result_text, notes_text = parse_structured_reply(stripped)
-        if result_text or notes_text:
-            return format_node_reply(
-                result_text or "No result provided.",
-                notes_text or "No additional notes provided.",
-            )
+    json_reply = parse_json_reply(stripped)
+    if json_reply:
+        return format_node_reply(
+            json_reply.get("result") or "No result provided.",
+            json_reply.get("notes") or "No additional notes provided.",
+        )
 
     lines = [line.strip() for line in stripped.splitlines() if line.strip()]
     if not lines:
@@ -189,31 +187,24 @@ def normalize_node_reply(text: str) -> str:
     return format_node_reply(first, "No additional notes provided.")
 
 
-def parse_structured_reply(text: str) -> tuple[str | None, str | None]:
-    result_text: list[str] = []
-    notes_text: list[str] = []
-    current: list[str] | None = None
+def parse_json_reply(text: str) -> dict[str, str] | None:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
-    for line in [line.strip() for line in text.splitlines() if line.strip()]:
-        lower = line.lower()
-        if lower.startswith("result:"):
-            current = result_text
-            remainder = line.split(":", 1)[1].strip()
-            if remainder:
-                current.append(remainder)
-            continue
-        if lower.startswith("notes:") or lower.startswith("scaffolding:"):
-            current = notes_text
-            remainder = line.split(":", 1)[1].strip()
-            if remainder:
-                current.append(remainder)
-            continue
-        if current is not None:
-            current.append(line)
+    if not isinstance(payload, dict):
+        return None
 
-    result = "\n".join(result_text).strip() or None
-    notes = "\n".join(notes_text).strip() or None
-    return result, notes
+    result = payload.get("result")
+    notes = payload.get("notes")
+    if not isinstance(result, str) and not isinstance(notes, str):
+        return None
+
+    return {
+        "result": result.strip() if isinstance(result, str) else "",
+        "notes": notes.strip() if isinstance(notes, str) else "",
+    }
 
 
 def node_execution_guidance(node: dict[str, Any]) -> str:
@@ -314,6 +305,28 @@ def openai_responses_create(
         "model": model,
         "input": input_items,
         "max_output_tokens": 600,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "workflow_node_reply",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "result": {
+                            "type": "string",
+                            "description": "The direct user-facing answer or workflow outcome.",
+                        },
+                        "notes": {
+                            "type": "string",
+                            "description": "Short supporting context, assumptions, or next steps.",
+                        },
+                    },
+                    "required": ["result", "notes"],
+                    "additionalProperties": False,
+                },
+            }
+        },
     }
     if tools:
         payload["tools"] = tools
